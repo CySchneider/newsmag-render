@@ -3,7 +3,7 @@
 Holt den Auftrag vom Worker (/yt-job), rendert 16:9 (render.mjs), baut das MP4 (ffmpeg), lädt es über die YouTube-API hoch
 (Zugriffs-Token von /yt-token, der Refresh-Token bleibt im Worker) und meldet das Ergebnis an /yt-done → Telegram.
 Zeiten: Absätze exakt aus dem Mischen im Worker, Sätze darin über Sprechpausen (ffmpeg silencedetect)."""
-import json, os, re, subprocess, sys, urllib.request, urllib.error
+import json, os, re, subprocess, sys, time, urllib.request, urllib.error
 
 BASE = "https://newsmag.ch"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -231,8 +231,13 @@ def build_reels(job, caps, scenes):
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", "-t", f"{T:.3f}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out], check=True)
             if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1)}); continue  # lokaler Test: nicht hochladen
-            with open(out, "rb") as f:
-                http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}", f.read(), {"Content-Type": "video/mp4"}, "POST", 300)
+            data = open(out, "rb").read()
+            for attempt in range(3):  # Hochladen bis 3× (23.10.2026: 2 von 6 Reels gingen durch eine Zeitüberschreitung verloren)
+                try: http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}", data, {"Content-Type": "video/mp4"}, "POST", 300); break
+                except Exception as ue:
+                    print("Reel-Upload Versuch", attempt + 1, r["k"], ue)
+                    if attempt == 2: raise
+                    time.sleep(10)
             done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1)})
             print("Reel", r["k"], r["theme"], round(T, 1), "s", os.path.getsize(out) // 1024, "KB")
         except Exception as ex:
