@@ -1,0 +1,17 @@
+name: Sportdaten
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Einmal-Token vom Worker
+        required: true
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 sports/fetch.py
+        env:
+          API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
+          JOB: ${{ inputs.job }}

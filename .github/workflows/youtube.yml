@@ -1,0 +1,36 @@
+# YouTube-Video nach jeder Newscast-Folge (seit 15.10.2026). Gestartet vom Worker (ytJobStart) mit Einmal-Token als Eingabe.
+# Rendert 16:9 (video/youtube/render.mjs), baut das MP4 und lädt es hoch (video/youtube/yt.py). Kein Google-Schlüssel in GitHub:
+# das Zugriffs-Token kommt pro Lauf vom Worker (/yt-token?t=…).
+name: YouTube-Video
+on:
+  workflow_dispatch:
+    inputs:
+      job: { description: "Einmal-Token des Auftrags (vom Worker)", required: true }
+      dry: { description: "1 = nur Website-Video, 2 = nur Reels, 3 = Reels + YouTube-Short, 0 = ganze Folge", required: false, default: "0" }
+concurrency: { group: youtube, cancel-in-progress: false }
+jobs:
+  youtube:
+    runs-on: ubuntu-24.04  # fest (22.10.2026): ubuntu-latest wechselt auf 26, Werkzeug-Installation hing
+    timeout-minutes: 25
+    defaults: { run: { working-directory: video } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Token maskieren
+        run: echo "::add-mask::${{ inputs.job }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Werkzeuge
+        run: |
+          npm install --no-audit --no-fund
+          bash setup-tools.sh ffmpeg emoji
+      - name: Beat holen
+        run: curl -sf "https://newsmag.ch/video-kit/news-beat.m4a?t=${{ inputs.job }}" -o news-beat.m4a
+      - name: Video bauen und hochladen
+        env: { YT_DRY: "${{ inputs.dry }}" }
+        run: |
+          mkdir -p work && cd work
+          python3 ../youtube/yt.py "${{ inputs.job }}"
+      - name: Bilder und Beschreibung als Artefakt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: youtube, path: "video/work/fr/thumb.png\nvideo/work/beschreibung.txt\nvideo/work/reels/reel-*.mp4", retention-days: 3 }

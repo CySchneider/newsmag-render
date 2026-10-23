@@ -1,0 +1,45 @@
+# Story-Video nach jeder Newscast-Folge (seit 11.10.2026). Gestartet vom Worker (videoJobStart) mit Einmal-Token als Eingabe.
+name: Story-Video
+on:
+  workflow_dispatch:
+    inputs:
+      job: { description: "Einmal-Token des Auftrags (vom Worker)", required: true }
+concurrency: { group: video, cancel-in-progress: false }
+jobs:
+  render:
+    runs-on: ubuntu-24.04  # fest (22.10.2026): ubuntu-latest wechselt auf 26, Werkzeug-Installation hing
+    timeout-minutes: 25
+    defaults: { run: { working-directory: video } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Token maskieren
+        run: echo "::add-mask::${{ inputs.job }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Werkzeuge
+        run: |
+          npm install --no-audit --no-fund
+          bash setup-tools.sh ffmpeg
+          pip install --quiet pillow numpy
+      - name: Beat holen
+        run: curl -sf "https://newsmag.ch/video-kit/news-beat.m4a?t=${{ inputs.job }}" -o news-beat.m4a
+      - name: Auftrag holen
+        run: python3 job.py "${{ inputs.job }}"
+      - name: Slides rendern
+        run: |
+          node render.mjs slides.json out
+          cp newsmag-end.png out/newsmag-end.png
+      - name: Video bauen
+        run: python3 makevideo.py out news-beat.m4a newsmag.mp4
+      - name: An Telegram senden
+        run: |
+          for i in 1 2; do
+            r=$(curl -s -o resp.txt -w "%{http_code}" -X POST "https://newsmag.ch/video-send?t=${{ inputs.job }}" \
+              -F "video=@newsmag.mp4;type=video/mp4" -F "edition=<edition.txt" -F "slides=<slides.json" -F "ig=<ig.txt" -F "wa=<wa.txt")
+            cat resp.txt; echo; [ "$r" = "200" ] && exit 0; sleep 10
+          done
+          exit 1
+      - name: Slides als Artefakt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: slides, path: video/out, retention-days: 3 }

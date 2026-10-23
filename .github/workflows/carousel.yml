@@ -1,0 +1,41 @@
+# Instagram-Karussell (seit 14.10.2026): 10 Uhr «Genauer hingeschaut», 20 Uhr «Der Tag».
+# Gestartet vom Worker (carouselJobStart) mit Einmal-Token. Rendert video/carousel.mjs (1080×1350) und schickt die Bilder an /carousel-send.
+name: Karussell
+on:
+  workflow_dispatch:
+    inputs:
+      job: { description: "Einmal-Token des Auftrags (vom Worker)", required: true }
+concurrency: { group: carousel, cancel-in-progress: false }
+jobs:
+  render:
+    runs-on: ubuntu-24.04  # fest (22.10.2026): ubuntu-latest wechselt auf 26, Werkzeug-Installation hing
+    timeout-minutes: 10
+    defaults: { run: { working-directory: video } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Token maskieren
+        run: echo "::add-mask::${{ inputs.job }}"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Werkzeuge
+        run: |
+          npm install --no-audit --no-fund
+          bash setup-tools.sh
+      - name: Auftrag holen
+        run: |
+          curl -sf "https://newsmag.ch/carousel-job?t=${{ inputs.job }}" -o job.json
+          node -e 'const j=require("./job.json"); require("fs").writeFileSync("carousel.json", JSON.stringify(j.slides)); console.log(j.name, "·", j.topic, "·", j.slides.slides.length, "Slides")'
+      - name: Slides rendern
+        run: node carousel.mjs carousel.json out
+      - name: An Newsmag senden
+        run: |
+          args=(); for f in out/*.jpg; do args+=(-F "img=@$f;type=image/jpeg"); done
+          for i in 1 2; do
+            r=$(curl -s -o resp.txt -w "%{http_code}" --max-time 170 -X POST "https://newsmag.ch/carousel-send?t=${{ inputs.job }}" "${args[@]}")
+            cat resp.txt; echo; [ "$r" = "200" ] && exit 0; sleep 10
+          done
+          exit 1
+      - name: Slides als Artefakt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: carousel, path: video/out, retention-days: 3 }

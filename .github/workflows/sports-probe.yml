@@ -1,0 +1,20 @@
+name: Sportdaten-Test
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: 'JSON-Liste [{"api":"football","path":"/status"}]'
+        required: true
+      list:
+        description: "1 = nur Ligen-Kurzliste"
+        required: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 sports/probe.py
+        env:
+          API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
+          PROBE: ${{ inputs.probe }}
+          LIST: ${{ inputs.list }}
