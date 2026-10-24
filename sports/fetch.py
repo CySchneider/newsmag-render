@@ -112,7 +112,11 @@ def lineup(x):
 def evof(x, lu=False):
     f, s, home = x["fixture"], x["score"], x["teams"]["home"]["id"]
     ev = []
+    sb = []  # Wechsel (24.10.2026) nur für die Aufstellung: [Minute, Nachspielzeit, h/a, Spieler, Vorlage-Feld] – wer raus/rein, bestimmt die Seite über die Startelf (API vertauscht die Felder teils)
     for e in x.get("events") or []:
+        if (e.get("type") or "").lower() == "subst":
+            sb.append([e["time"]["elapsed"], e["time"].get("extra"), "h" if e["team"]["id"] == home else "a", (e.get("player") or {}).get("name") or "", (e.get("assist") or {}).get("name") or ""])
+            continue
         ty = TYPES.get((e.get("type"), e.get("detail")))
         if not ty: continue
         ev.append([e["time"]["elapsed"], e["time"].get("extra"), "h" if e["team"]["id"] == home else "a", ty,
@@ -123,7 +127,7 @@ def evof(x, lu=False):
     old = dt.datetime.now(dt.timezone.utc).timestamp() - (f.get("timestamp") or 0) > 24 * 3600
     r = {"final": f["status"]["short"] in DONE_F and (named or old), "ht": [ht.get("home"), ht.get("away")] if ht.get("home") is not None else None,
             "v": ", ".join(v for v in [(f.get("venue") or {}).get("name"), (f.get("venue") or {}).get("city")] if v),
-            "ref": (f.get("referee") or "").split(",")[0], "ev": ev}
+            "ref": (f.get("referee") or "").split(",")[0], "ev": ev, "sb": sb}
     if lu: r["lu"] = lineup(x)  # nur aus /fixtures?ids= (Live-Abruf hat keine) → Worker behält sonst die gespeicherte
     return r
 
