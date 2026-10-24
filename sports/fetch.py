@@ -59,8 +59,10 @@ def football(lg):
     for x in d.get("response") or []:
         f = x["fixture"]; st = f["status"]["short"]
         matches.append(fmatch(x))
-        if lg.get("ev") and (st in LIVE_F or (st in DONE_F and f["id"] not in have_ev)):
-            want_ev.append(f["id"])
+        # Aufstellungen (24.10.2026) kommen ca. 20–60 min vor Anpfiff → noch nicht begonnene Spiele ab 90 min vorher mitnehmen
+        soon = st == "NS" and 0 < (f.get("timestamp") or 0) - time.time() < 90 * 60
+        if lg.get("ev") and (st in LIVE_F or soon): want_ev.insert(0, f["id"])  # laufende zuerst (max. 100 pro Lauf)
+        elif lg.get("ev") and st in DONE_F and f["id"] not in have_ev: want_ev.append(f["id"])
     table = None
     if lg.get("table"):
         resp = get("football", f"/standings?league={lg['id']}&season={season}").get("response") or []
@@ -97,7 +99,17 @@ for lg in job["leagues"]:
 # Spieldetails Fussball: bis 20 Spiele pro Abruf (/fixtures?ids=…) – Tore, Karten, Pausenstand, Stadion, Schiedsrichter
 TYPES = {("Goal", "Normal Goal"): "g", ("Goal", "Own Goal"): "og", ("Goal", "Penalty"): "pg", ("Goal", "Missed Penalty"): "mp",
          ("Card", "Yellow Card"): "y", ("Card", "Red Card"): "r", ("Card", "Second Yellow card"): "yr"}
-def evof(x):
+def lineup(x):
+    # Aufstellungen (Cy 24.10.2026): nur in /fixtures?ids=, nicht im Live-Abruf. {"h"|"a": [Formation, Trainer, Startelf, Ersatz]},
+    # Spieler [Nummer, Name, Position G/D/M/F]. Leere Liste → None (Liga ohne Aufstellungen, z. B. Challenge League)
+    out, home = {}, x["teams"]["home"]["id"]
+    for t in x.get("lineups") or []:
+        pl = lambda L: [[(p.get("player") or {}).get("number"), (p.get("player") or {}).get("name") or "", (p.get("player") or {}).get("pos") or ""] for p in L or []]
+        xi = pl(t.get("startXI"))
+        if xi: out["h" if (t.get("team") or {}).get("id") == home else "a"] = [t.get("formation") or "", (t.get("coach") or {}).get("name") or "", xi, pl(t.get("substitutes"))]
+    return out or None
+
+def evof(x, lu=False):
     f, s, home = x["fixture"], x["score"], x["teams"]["home"]["id"]
     ev = []
     for e in x.get("events") or []:
@@ -109,9 +121,11 @@ def evof(x):
     # endgültig erst, wenn alle Namen da sind (live/Cup fehlen sie oft und kommen später) – spätestens 24 h nach Anpfiff
     named = all(e[4] for e in ev)
     old = dt.datetime.now(dt.timezone.utc).timestamp() - (f.get("timestamp") or 0) > 24 * 3600
-    return {"final": f["status"]["short"] in DONE_F and (named or old), "ht": [ht.get("home"), ht.get("away")] if ht.get("home") is not None else None,
+    r = {"final": f["status"]["short"] in DONE_F and (named or old), "ht": [ht.get("home"), ht.get("away")] if ht.get("home") is not None else None,
             "v": ", ".join(v for v in [(f.get("venue") or {}).get("name"), (f.get("venue") or {}).get("city")] if v),
             "ref": (f.get("referee") or "").split(",")[0], "ev": ev}
+    if lu: r["lu"] = lineup(x)  # nur aus /fixtures?ids= (Live-Abruf hat keine) → Worker behält sonst die gespeicherte
+    return r
 
 if job.get("mode") == "live":
     # Live-Abruf: nur laufende Spiele. Fussball 1 Abruf für alle Ligen (inkl. Ereignisse), Eishockey 1 Abruf pro Liga (heutige Spiele).
@@ -136,7 +150,7 @@ if job.get("mode") == "live":
 for i in range(0, min(len(want_ev), 100), 20):
     ids = "-".join(str(x) for x in want_ev[i:i + 20])
     for x in get("football", f"/fixtures?ids={ids}&timezone=Europe/Zurich").get("response") or []:
-        out["ev"][str(x["fixture"]["id"])] = evof(x)
+        out["ev"][str(x["fixture"]["id"])] = evof(x, True)
 
 for sport in ("football", "hockey"):
     if any((lg.get("sport") or "football") == sport for lg in job["leagues"]):
