@@ -76,6 +76,9 @@ WORD = re.compile(r"[A-Za-zÄÖÜäöüéèàç]{4,}")
 def words(s): return {w.lower() for w in WORD.findall(s or "")}
 
 
+OVERVIEW = re.compile(r"^(Die Themen|Zuerst das Wichtigste)")
+
+
 def build_timeline(job, sil):
     paras, topics = job["paras"], job["topics"]
     caps, scenes = [], []
@@ -85,7 +88,7 @@ def build_timeline(job, sil):
         text, a, b = p["text"], p["t0"], p["t1"]
         # Szene des Absatzes
         if i == 0: sc = ("title", None)
-        elif text.startswith("Die Themen"): sc = ("themes", None)
+        elif OVERVIEW.match(text): sc = ("themes", None)  # Themenansage; nachts «Zuerst das Wichtigste des Tages: …» (27.10.2026: lief sonst als Audi-Reel)
         elif "newsmag punkt c h" in text or "Margareth von KI" in text: sc = ("end", None)
         elif text.startswith("Das Wetter"): sc = ("weather", None)
         else:
@@ -162,7 +165,8 @@ def reel_specs(job, caps, scenes):
     out = []
     for k in job.get("reel_ids") or []:
         if k >= len(job["topics"]): continue
-        idx = [i for i, (_, sc) in enumerate(scenes) if sc == ("topic", k)]
+        first = max([i for i, (_, sc) in enumerate(scenes) if sc[0] == "themes"], default=0) + 1  # nie vor/in der Themenansage
+        idx = [i for i, (_, sc) in enumerate(scenes) if sc == ("topic", k) and i >= first]
         if not idx: continue
         run = [idx[0]]
         for i in idx[1:]:
