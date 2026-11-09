@@ -128,7 +128,7 @@ def from_detail(d, sid):
         per[4] = f"{sum(sh)}-{len(sh) - sum(sh)}"
     t = st0.get("startDateTime") or d.get("startDateTime")
     m = {"id": int(d["gameId"]), "t": dt.datetime.fromisoformat(t).isoformat() if t else None, "st": st, "el": None,
-         "r": d["round"] + 1 if sid == 1 and isinstance(d.get("round"), int) else None,  # SIHF zählt ab 0 (0 = 1. Runde) "h": team(hid, (det.get("homeTeam") or {}).get("name")),
+         "r": d["round"] + 1 if sid == 1 and isinstance(d.get("round"), int) else None, "h": team(hid, (det.get("homeTeam") or {}).get("name")),
          "a": team((det.get("awayTeam") or {}).get("id"), (det.get("awayTeam") or {}).get("name")), "g": g, "p": None, "per": per}
     if st == "NS": return m, None
     # Ereignisse: Tor [Minute, None, h/a, "g", Torschütze, Assists, Zusatz, "mm:ss"], Strafe [Minute, None, h/a, "hp", Spieler, "2' Grund", None, "mm:ss"]
