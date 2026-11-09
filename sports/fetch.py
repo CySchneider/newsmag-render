@@ -2,9 +2,10 @@
 # Der Worker startet den Job (workflow_dispatch mit Einmal-Token), dieses Skript holt den Auftrag (Ligen, Saison, Zeitfenster,
 # bereits gespeicherte Spieldetails), ruft Spiele, Tabellen und Spieldetails ab, kürzt sie und schickt sie an den Worker.
 import datetime as dt, json, os, sys, time, urllib.request
+import sihf  # Eishockey vom Verband (Ligen mit "src": "sihf"), siehe sihf.py
 HOST = "https://newsmag.ch"
 BASE = {"football": "https://v3.football.api-sports.io", "hockey": "https://v1.hockey.api-sports.io"}
-KEY, JOB = os.environ["API_SPORTS_KEY"], os.environ["JOB"]
+KEY, JOB = os.environ.get("API_SPORTS_KEY", ""), os.environ["JOB"]
 calls = 0
 LIVE_F = {"1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT"}
 DONE_F = {"FT", "AET", "PEN", "AWD", "WO"}
@@ -93,8 +94,12 @@ def hockey(lg):
                      for e in rows]
     return {"id": lg["id"], "sport": "hockey", "matches": matches, "table": table}
 
+SIHF_L = [lg for lg in job["leagues"] if lg.get("src") == "sihf"]
 for lg in job["leagues"]:
+    if lg.get("src") == "sihf": continue
     out["leagues"].append(hockey(lg) if lg.get("sport") == "hockey" else football(lg))
+if SIHF_L and job.get("mode") != "live":
+    sihf.run(job, SIHF_L, out, frm, to)
 
 # Spieldetails Fussball: bis 20 Spiele pro Abruf (/fixtures?ids=…) – Tore, Karten, Pausenstand, Stadion, Schiedsrichter
 TYPES = {("Goal", "Normal Goal"): "g", ("Goal", "Own Goal"): "og", ("Goal", "Penalty"): "pg", ("Goal", "Missed Penalty"): "mp",
@@ -142,11 +147,12 @@ if job.get("mode") == "live":
             by.setdefault(x["league"]["id"], []).append(fmatch(x))
             out["ev"][str(x["fixture"]["id"])] = evof(x)
         out["leagues"] += [{"id": i, "sport": "football", "matches": by.get(i, [])} for i in fb]
+    sihf.live(job, [l for l in job["live"] if l.get("src") == "sihf"], out)
     for l in job["live"]:
-        if l["sport"] != "hockey": continue
+        if l["sport"] != "hockey" or l.get("src") == "sihf": continue
         res = get("hockey", f"/games?league={l['id']}&season={season}&date={job['day']}&timezone=Europe/Zurich").get("response") or []
         out["leagues"].append({"id": l["id"], "sport": "hockey", "matches": [hmatch(x) for x in res]})
-    out["mode"], out["at"], out["calls"] = "live", dt.datetime.now(dt.timezone.utc).isoformat(), calls
+    out["mode"], out["at"], out["calls"], out["calls_sihf"] = "live", dt.datetime.now(dt.timezone.utc).isoformat(), calls, sihf.calls
     res = http_json(f"{HOST}/sports-push?t={JOB}", json.dumps(out).encode())
     print("live gesendet:", res, "Abrufe:", calls, "Spiele:", sum(len(l["matches"]) for l in out["leagues"]))
     sys.exit(0)
@@ -157,12 +163,12 @@ for i in range(0, min(len(want_ev), 100), 20):
         out["ev"][str(x["fixture"]["id"])] = evof(x, True)
 
 for sport in ("football", "hockey"):
-    if any((lg.get("sport") or "football") == sport for lg in job["leagues"]):
+    if any((lg.get("sport") or "football") == sport and lg.get("src") != "sihf" for lg in job["leagues"]):
         st = get(sport, "/status").get("response") or {}
         if isinstance(st, dict):
             out["sub"][sport] = {"plan": (st.get("subscription") or {}).get("plan"), "end": (st.get("subscription") or {}).get("end"),
                                  "used": (st.get("requests") or {}).get("current"), "limit": (st.get("requests") or {}).get("limit_day")}
 out["at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-out["calls"] = calls
+out["calls"], out["calls_sihf"] = calls, sihf.calls
 res = http_json(f"{HOST}/sports-push?t={JOB}", json.dumps(out).encode())
 print("gesendet:", res, "Abrufe:", calls, "Ligen:", len(out["leagues"]), "Spiele:", sum(len(l["matches"]) for l in out["leagues"]), "Details:", len(out["ev"]))
