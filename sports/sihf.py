@@ -128,7 +128,7 @@ def from_detail(d, sid):
         per[4] = f"{sum(sh)}-{len(sh) - sum(sh)}"
     t = st0.get("startDateTime") or d.get("startDateTime")
     m = {"id": int(d["gameId"]), "t": dt.datetime.fromisoformat(t).isoformat() if t else None, "st": st, "el": None,
-         "r": d.get("round") if sid == 1 else None, "h": team(hid, (det.get("homeTeam") or {}).get("name")),
+         "r": d["round"] + 1 if sid == 1 and isinstance(d.get("round"), int) else None,  # SIHF zählt ab 0 (0 = 1. Runde) "h": team(hid, (det.get("homeTeam") or {}).get("name")),
          "a": team((det.get("awayTeam") or {}).get("id"), (det.get("awayTeam") or {}).get("name")), "g": g, "p": None, "per": per}
     if st == "NS": return m, None
     # Ereignisse: Tor [Minute, None, h/a, "g", Torschütze, Assists, Zusatz, "mm:ss"], Strafe [Minute, None, h/a, "hp", Spieler, "2' Grund", None, "mm:ss"]
@@ -183,6 +183,11 @@ def standing(sid, season):
                     "gf": n(x[11]), "ga": n(x[12]), "gd": n(x[13]), "pts": n(x[3]), "f": "",
                     "d": next((z for lim, z in ZONES.get(sid, []) if r <= lim), ""), "grp": ""})
     return out
+
+
+def exhibition(d):
+    """Testspiele (Phase «NL Exhibition Games» u. ä.)."""
+    return bool(re.search(r"exhibition|test|vorbereitung", ((d.get("phase") or {}).get("name") or ""), re.I))
 
 
 def fix_rounds(ms):
@@ -244,6 +249,7 @@ def run(job, leagues, out, frm, to):
             by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")} if k else
                                {"id": x["id"], "t": t, "st": "NS", "el": None, "r": None, "h": team(*x["h"]), "a": team(*x["a"]), "g": None, "p": None, "per": [None] * 5})
             continue
+        if exhibition(d): continue  # Testspiele vor der Saison stehen in der Tagesliste unter derselben Liga
         m, info = from_detail(d, x["lg"])
         by[x["lg"]].append(m)
         if info: out["ev"][str(m["id"])] = info
