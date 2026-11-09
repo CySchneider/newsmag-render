@@ -233,7 +233,11 @@ def run(job, leagues, out, frm, to):
             by[x["lg"]].append({"id": x["id"], "t": t, "st": "NS", "el": None, "r": (k or {}).get("r"), "h": team(*x["h"]), "a": team(*x["a"]),
                                 "g": None, "p": None, "per": [None] * 5})
         day += dt.timedelta(days=1)
-    for x, t in want[:150]:
+    cap = 400 if (d1 - d0).days > 30 else 150  # Archiv-Füllung (Fenster bis 60 Tage zurück): ca. 250 Spiele
+    for x, t in want[cap:]:  # über der Grenze: gespeicherten Stand behalten statt das Spiel zu verlieren
+        k = known.get(x["id"])
+        if k: by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")})
+    for x, t in want[:cap]:
         d = detail(x["id"])
         if not d or not d.get("gameId"):
             k = known.get(x["id"])
