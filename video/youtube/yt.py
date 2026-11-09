@@ -203,6 +203,24 @@ def reel_outros(job):
     return got
 
 
+def mean_db(args):
+    """Mittlere Lautstärke (dB) per ffmpeg volumedetect; None bei Fehler."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats"] + args + ["-af", "volumedetect", "-f", "null", "-"], capture_output=True, text=True, timeout=60)
+        m = re.search(r"mean_volume:\s*(-?[\d.]+) dB", r.stderr)
+        return float(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def end_gain(voice_db, end_file):
+    """Endsatz so laut wie die Stimme im Reel (Cy 09.11.2026: Endsatz klang leiser). Die Stimme kommt aus der fertig gemischten
+    Folge (dort schon bis 1.33× verstärkt), der Endsatz ist eine rohe Einzelaufnahme → Unterschied ausgleichen, begrenzt auf 0.8–3×."""
+    e = mean_db(["-i", end_file])
+    if voice_db is None or e is None: return 1.25
+    return round(1.25 * min(3.0, max(0.8, 10 ** ((voice_db - e) / 20))), 3)
+
+
 def build_reels(job, caps, scenes):
     specs = reel_specs(job, caps, scenes)
     if not specs: return []
@@ -222,7 +240,10 @@ def build_reels(job, caps, scenes):
         e = r.get("end")
         ins = ["-f", "concat", "-safe", "0", "-i", f"reels/{r['k']}/list.txt", "-i", "ep.mp3", "-stream_loop", "-1", "-i", beat] + (["-i", e["file"]] if e else [])
         voice = f"[1:a]atrim=start={r['a']:.3f}:end={r['b']:.3f},asetpts=PTS-STARTPTS,volume=1.25[v0];"
-        if e: voice += f"[3:a]asetpts=PTS-STARTPTS,adelay={int(m['e0'] * 1000)}:all=1,volume=1.25[v1];[v0][v1]amix=inputs=2:normalize=0:duration=longest[vm];"
+        if e:
+            g = end_gain(mean_db(["-ss", f"{r['a']:.3f}", "-to", f"{r['b']:.3f}", "-i", "ep.mp3"]), e["file"])
+            print(f"Reel {r['k']}: Endsatz-Verstärkung {g}", flush=True)
+            voice += f"[3:a]asetpts=PTS-STARTPTS,adelay={int(m['e0'] * 1000)}:all=1,volume={g}[v1];[v0][v1]amix=inputs=2:normalize=0:duration=longest[vm];"
         else: voice += "[v0]anull[vm];"
         nv = bool(job.get("novoice"))  # ohne Stimme: keine Wellenform, Beat trägt (lauter)
         fc = (voice + f"[vm]apad=whole_dur={T:.3f},asplit=2[vx][vw];"
