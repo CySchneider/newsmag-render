@@ -29,6 +29,8 @@ TEAMS = {
 # Zonen in der Tabelle (wie API-Hockey «description», spZone im Worker): NL 1–6 Playoffs, 7–10 Play-in; SL 1–8, MyHockey League 1–10 Playoffs
 ZONES = {1: [(6, "Play Offs"), (10, "Play-in")], 2: [(8, "Play Offs")], 100: [(10, "Play Offs")]}
 DONE = {"FT", "AOT", "AP"}
+# Ligen mit offizieller Runde aus gameDetail: National League, Swiss League (seit 11.11.2026, Cy; vorher nur NL)
+RND = {1, 2}
 
 
 def get(url, js=True):
@@ -128,7 +130,7 @@ def from_detail(d, sid):
         per[4] = f"{sum(sh)}-{len(sh) - sum(sh)}"
     t = st0.get("startDateTime") or d.get("startDateTime")
     m = {"id": int(d["gameId"]), "t": dt.datetime.fromisoformat(t).isoformat() if t else None, "st": st, "el": None,
-         "r": d["round"] + 1 if sid == 1 and isinstance(d.get("round"), int) else None, "h": team(hid, (det.get("homeTeam") or {}).get("name")),
+         "r": d["round"] + 1 if sid in RND and isinstance(d.get("round"), int) else None, "h": team(hid, (det.get("homeTeam") or {}).get("name")),
          "a": team((det.get("awayTeam") or {}).get("id"), (det.get("awayTeam") or {}).get("name")), "g": g, "p": None, "per": per}
     if st == "NS": return m, None
     # Ereignisse: Tor [Minute, None, h/a, "g", Torschütze, Assists, Zusatz, "mm:ss"], Strafe [Minute, None, h/a, "hp", Spieler, "2' Grund", None, "mm:ss"]
@@ -209,7 +211,7 @@ def fix_rounds(ms):
 
 
 def run(job, leagues, out, frm, to):
-    """Voller Abruf: Tageslisten im Zeitfenster, Details nur wo nötig (laufend, beendet ohne endgültige Details, NL ohne Runde)."""
+    """Voller Abruf: Tageslisten im Zeitfenster, Details nur wo nötig (laufend, beendet ohne endgültige Details, NL/SwL ohne Runde)."""
     season = int(job["season"]) + 1  # SIHF zählt 2026/27 als 2027
     sids = {lg["sid"]: lg for lg in leagues}
     # gespeicherte Spiele pro Liga (vom Worker, lg["hk"]), "fin": Details endgültig → kein erneuter Abruf
@@ -233,7 +235,7 @@ def run(job, leagues, out, frm, to):
             begun = dt.datetime.fromisoformat(t).timestamp() < now + 10 * 60
             if k and k.get("st") in DONE and k.get("fin"):
                 by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")}); continue
-            if begun or x["live"] or not hm or (x["lg"] == 1 and not (k or {}).get("r")):
+            if begun or x["live"] or not hm or (x["lg"] in RND and not (k or {}).get("r")):
                 want.append((x, t)); continue
             by[x["lg"]].append({"id": x["id"], "t": t, "st": "NS", "el": None, "r": (k or {}).get("r"), "h": team(*x["h"]), "a": team(*x["a"]),
                                 "g": None, "p": None, "per": [None] * 5})
@@ -254,7 +256,8 @@ def run(job, leagues, out, frm, to):
         by[x["lg"]].append(m)
         if info: out["ev"][str(m["id"])] = info
         time.sleep(0.2)
-    if 1 in by: fix_rounds(by[1])
+    for sid in RND:
+        if sid in by: fix_rounds(by[sid])
     for sid, lg in sids.items():
         table = standing(sid, season) if lg.get("table") else None
         out["leagues"].append({"id": lg["id"], "sport": "hockey", "src": "sihf", "matches": sorted(by[sid], key=lambda m: m["t"] or ""), "table": table})
