@@ -33,7 +33,14 @@ def http_json(url, data=None):
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r)
 
-job = http_json(f"{HOST}/sports-job?t={JOB}")
+# 403 = Auftrag überholt: Der Job startete verspätet (GitHub-Warteschlange) und der Worker hat inzwischen einen neueren
+# Abruf mit neuem Token vergeben (11.11.2026, 7 min Wartezeit). Kein Fehler – der neuere Abruf holt die Daten.
+try:
+    job = http_json(f"{HOST}/sports-job?t={JOB}")
+except urllib.error.HTTPError as e:
+    if e.code != 403: raise
+    print("::notice::Auftrag überholt (Token abgelaufen oder durch neueren Abruf ersetzt) – nichts zu tun")
+    sys.exit(0)
 season, frm, to = job["season"], job.get("from"), job.get("to")
 have_ev = set(job.get("have_ev") or [])
 out = {"at": None, "season": season, "leagues": [], "ev": {}, "sub": {}}
