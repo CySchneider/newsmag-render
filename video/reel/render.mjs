@@ -5,7 +5,9 @@
 // Farben: Sport immer pink, sonst dunkel/hell im Wechsel (Worker: reelThemes). Pink bleibt überall Akzent.
 // Sichtbereich: Instagram-Feed schneidet auf 4:5 (y 285–1635), Vollbild deckt oben ~250 px, unten ab ~1480 und rechts ab x ~940 ab
 // → alles im Bereich y 340–1470, x 84–880, vertikal zentriert. Platz für den längsten Satz fest reserviert (nichts springt).
-// reels.json = { reels: [{ k, kicker, head, theme, caps: [{ text, dur, wt? }], gap, end: { text, dur, w? } }] }
+// reels.json = { reels: [{ k, kicker, head, theme, list?, caps: [{ text, dur, wt? }], gap, end: { text, dur, w? } }] }
+//   list (Runden-Reel, 11.11.2026): alle Sätze stehen als Liste untereinander (Resultate), der gesprochene ist hervorgehoben,
+//   Gesagtes voll, Kommendes gedämpft; Sätze mit leerem text werden nur gesprochen (Einleitung).
 //   wt = Wortanfänge (s, ab Reel-Beginn) aus den ElevenLabs-Zeitstempeln; fehlen sie, wird nach Zeichenlänge geschätzt.
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -36,6 +38,8 @@ body{font-family:A;position:relative}
 #ch em{font-style:normal}
 #cap{position:absolute;left:84px;right:200px;font-size:60px;font-weight:600;font-stretch:90%;line-height:1.22;text-wrap:balance;overflow-wrap:anywhere}
 #cap .n{font-weight:800}
+#cap.list{font-size:56px;line-height:1.3;text-wrap:wrap}
+#cap.list div{margin-bottom:6px}
 `;
 const headHtml = (h, acc) => { let pink = false; return String(h).split(/(\*)/).map(t => { if (t === '*') { pink = !pink; return ''; } return pink ? `<em style="color:${acc}">${esc(t)}</em>` : esc(t); }).join(''); };
 // Wörter eines Satzes mit Startzeit: aus Zeitstempeln (wt) oder nach Zeichenlänge geschätzt
@@ -54,37 +58,46 @@ for (const r of R.reels) {
   const [bg, fg, acc, cb, cf, wave, dim] = TH[r.theme] || TH.dunkel;
   const doc = (capHtml, g) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body style="background:${bg};color:${fg}">
     <div id="blk" style="top:${g.top}px;transform:scale(${g.s})"><span class="chip" style="background:${cb};color:${cf}">${esc(r.kicker || 'Newsmag')}</span><h1 id="ch">${headHtml(r.head, acc)}</h1></div>
-    <div id="cap" style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div></body></html>`;
+    <div id="cap"${r.list ? ' class="list"' : ''} style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div></body></html>`;
   // Ereignisse: [Zeit, Wörter des Satzes, Index des gesprochenen Wortes]
   const ev = []; let t = 0;
-  for (const c of r.caps) { const ws = timed(c.text, t, t + c.dur, c.wt); ws.forEach((x, j) => ev.push([x.s, ws, j])); t += c.dur; }
+  for (const [ci, c] of r.caps.entries()) { const ws = timed(c.text, t, t + c.dur, c.wt); ws.forEach((x, j) => ev.push([x.s, ws, j, ci])); t += c.dur; }
   const V_END = t, E0 = V_END + (r.gap || 0.35), T_END = E0 + (r.end ? r.end.dur : 0) + 0.6;
-  if (r.end) { const ws = timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)); ws.forEach((x, j) => ev.push([x.s, ws, j])); }
+  if (r.end) { const ws = timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)); ws.forEach((x, j) => ev.push([x.s, ws, j, -1])); }
   ev.sort((a, b) => a[0] - b[0]);
   // Geometrie
   await pg.setContent(doc('', { top: 0, s: 1, capTop: 0, capOp: 0 })); await pg.evaluate(() => document.fonts.ready);
   const H = await pg.evaluate(() => { const h = document.getElementById('ch'); let s = 190; while ((h.scrollWidth > 912 || h.offsetHeight > 1000) && s > 80) { s -= 4; h.style.fontSize = s + 'px'; } return { fs: s, bh: document.getElementById('blk').offsetHeight }; });
   const sents = [...new Set(ev.map(e => e[1].map(x => x.w).join(' ')))];
-  const capMax = await pg.evaluate(ss => { const c = document.getElementById('cap'); let m = 0; for (const t of ss) { c.textContent = t; m = Math.max(m, c.offsetHeight); } c.textContent = ''; return m; }, sents);
+  const lines = r.caps.map((c, i) => ({ i, text: String(c.text || '').trim() })).filter(l => l.text);
+  const listAll = () => lines.map(l => `<div>${l.text.split(/\s+/).map(x => `<span${/\d/.test(x) ? ' class="n"' : ''}>${esc(x)}</span>`).join(' ')}</div>`).join('');
+  const capMax = r.list
+    ? await pg.evaluate(h => { const c = document.getElementById('cap'); c.className = 'list'; c.innerHTML = h; const m = c.offsetHeight; c.innerHTML = ''; c.className = ''; return m; }, listAll())
+    : await pg.evaluate(ss => { const c = document.getElementById('cap'); let m = 0; for (const t of ss) { c.textContent = t; m = Math.max(m, c.offsetHeight); } c.textContent = ''; return m; }, sents);
   const s1 = Math.max(0.35, Math.min(0.8, (BOT_SAFE - TOP_SAFE - CAP_GAP - capMax - WAVE_GAP - WAVE_H) / H.bh));
   const blockH = H.bh * s1 + CAP_GAP + capMax + WAVE_GAP + WAVE_H;
   const top1 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - blockH) / 2), top0 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - H.bh) / 2);
   const capTop = top1 + H.bh * s1 + CAP_GAP, waveY = Math.round(capTop + capMax + WAVE_GAP);
   const geo = p => ({ top: top0 + (top1 - top0) * ease(p), s: 1 + (s1 - 1) * ease(p), capTop, capOp: Math.max(0, (p - .6) / .4) });
   const now = acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6';
-  const capHtml = (ws, j) => ws.map((x, q) => `<span style="color:${q === j ? now : q < j ? fg : fg + dim}"${/\d/.test(x.w) ? ' class="n"' : ''}>${esc(x.w)}</span>`).join(' ');
+  const capOne = (ws, j) => ws.map((x, q) => `<span style="color:${q === j ? now : q < j ? fg : fg + dim}"${/\d/.test(x.w) ? ' class="n"' : ''}>${esc(x.w)}</span>`).join(' ');
+  // Liste: vor dem gesprochenen Satz voll, danach gedämpft; während des Endsatzes (ci −1) alles voll; vor dem ersten Satz alles gedämpft
+  const capList = (ws, j, ci) => lines.map(l => l.i === ci ? `<div>${capOne(ws, j)}</div>`
+    : `<div style="color:${ci === -1 || (ci != null && l.i < ci) ? fg : fg + dim}">${l.text.split(/\s+/).map(x => `<span${/\d/.test(x) ? ' class="n"' : ''}>${esc(x)}</span>`).join(' ')}</div>`).join('');
+  const capHtml = (ws, j, ci) => r.list ? capList(ws, j, ci) : capOne(ws, j);
   // Bilder: Titelbild stehen lassen, gleiten (je Bild), danach ein Bild pro Wort
   const frames = [[0, null, HOLD]];
   const nG = Math.round(GLIDE * FPS);
   const at = tt => ev.filter(x => x[0] <= tt).at(-1);
-  for (let i = 1; i <= nG; i++) { const e = at(HOLD + i / FPS); frames.push([i / nG, e ? [e[1], e[2]] : null, 1 / FPS]); }
+  for (let i = 1; i <= nG; i++) { const e = at(HOLD + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS]); }
   const t1 = HOLD + GLIDE + 1 / FPS, first = at(t1);
-  const seq = [...(first ? [[t1, first[1], first[2]]] : []), ...ev.filter(x => x[0] > t1)];
-  for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0]]);
+  const seq = [...(first ? [[t1, first[1], first[2], first[3]]] : []), ...ev.filter(x => x[0] > t1)];
+  if (r.list && !first) frames.push([1, null, (seq.length ? seq[0][0] : T_END) - t1]); // Liste schon zeigen, bevor der erste Satz läuft
+  for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2], seq[i][3]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0]]);
   const dir = `${out}/${r.k}`; fs.mkdirSync(dir, { recursive: true });
   const list = [];
   for (const [i, [p, w, dur]] of frames.entries()) {
-    await pg.setContent(doc(w ? capHtml(w[0], w[1]) : '', geo(p))); await pg.evaluate(() => document.fonts.ready);
+    await pg.setContent(doc(w ? capHtml(w[0], w[1], w[2]) : r.list ? capList([], -1, null) : '', geo(p))); await pg.evaluate(() => document.fonts.ready);
     await pg.evaluate(fs => { document.getElementById('ch').style.fontSize = fs + 'px'; }, H.fs);
     const name = `f${String(i).padStart(3, '0')}.png`; await pg.screenshot({ path: `${dir}/${name}` });
     list.push(`file '${name}'\nduration ${Math.max(dur, 0.02).toFixed(3)}`);

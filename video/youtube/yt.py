@@ -165,7 +165,10 @@ def reel_specs(job, caps, scenes):
     out = []
     for k in job.get("reel_ids") or []:
         if k >= len(job["topics"]): continue
-        first = max([i for i, (_, sc) in enumerate(scenes) if sc[0] == "themes"], default=0) + 1  # nie vor/in der Themenansage
+        # nie vor/in der Themenansage; ohne Ansage ab Absatz 1 (Absatz 0 = Begrüssung) – ausser bei Reels ohne Folge (novoice/solo:
+        # Absatz 0 IST das Thema; 11.11.2026: default=0 liess dort seit 27.10. jedes Reel leer)
+        th = [i for i, (_, sc) in enumerate(scenes) if sc[0] == "themes"]
+        first = th[-1] + 1 if th else (0 if job.get("novoice") or job.get("solo") else 1)
         idx = [i for i, (_, sc) in enumerate(scenes) if sc == ("topic", k) and i >= first]
         if not idx: continue
         run = [idx[0]]
@@ -185,7 +188,7 @@ def reel_specs(job, caps, scenes):
                **({"wt": [round(x - t0, 3) for x in c["wt"]]} if c.get("wt") else {})} for j, c in enumerate(cs)]
         t = job["topics"][k]
         theme = (job.get("reel_themes") or {}).get(str(k)) or ("pink" if t.get("kicker") == "Sport" else "dunkel")
-        out.append({"k": k, "id": t["id"], "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("kicker") or "", "head": t["head"],
+        out.append({"k": k, "id": t["id"], "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("kicker") or "", "head": t["head"], "list": bool(job.get("list")),
                     "publishers": t.get("publishers") or 0, "update": bool(t.get("update")), "theme": theme, "caps": rc})
     return out
 
@@ -374,11 +377,27 @@ def main():
     if not job or job.get("token") != TOKEN: sys.exit("Auftrag nicht gefunden oder veraltet")
     print(job["edition"], job["id"], len(job["paras"]), "Absätze,", len(job["topics"]), "Themen")
     try:
-        if job.get("novoice"):  # Reel von Hand ohne Folge (23.10.2026): stille Tonspur, Text im Lesetempo, Beat lauter
-            T = float(job["paras"][0]["t1"])
-            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{T + 1:.2f}", "ep.mp3"], check=True)
-            text = job["paras"][0]["text"]; ss = sentences(text); n = sum(len(x) for x in ss) or 1; t = 0.0; caps = []
-            for x in ss: d = len(x) / n * T; caps.append({"t0": round(t, 3), "t1": round(t + d, 3), "text": written(x)}); t += d
+        if job.get("novoice") or job.get("solo"):
+            # novoice: Reel von Hand ohne Folge (23.10.2026): stille Tonspur, Text im Lesetempo, Beat lauter
+            # solo: eigene Tonspur vom Worker (Runden-Reel, 11.11.2026): Margareth, Sätze vorgegeben (sents: say = gesprochen, text = Anzeige)
+            p0 = job["paras"][0]; T = float(p0["t1"])
+            if job.get("solo") and job.get("audio"):
+                _, _, a = http(job["audio"], timeout=120); open("ep.mp3", "wb").write(a)  # WAV, ffmpeg erkennt das Format am Inhalt
+            else:
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{T + 1:.2f}", "ep.mp3"], check=True)
+            caps = []
+            if p0.get("sents"):
+                sents = p0["sents"]; w = p0.get("w"); nw = sum(len(x["say"].split()) for x in sents)
+                w = w if w and len(w) == nw else None
+                tot = sum(len(x["say"]) for x in sents) or 1; off = 0; t = 0.0
+                for x in sents:
+                    n = len(x["say"].split())
+                    caps.append({"t0": round(w[off] if w else t, 3), "text": x["text"], **({"wt": w[off:off + n]} if w else {})})
+                    off += n; t += len(x["say"]) / tot * T
+                for j, c in enumerate(caps): c["t1"] = caps[j + 1]["t0"] if j + 1 < len(caps) else T
+            else:
+                text = p0["text"]; ss = sentences(text); n = sum(len(x) for x in ss) or 1; t = 0.0
+                for x in ss: d = len(x) / n * T; caps.append({"t0": round(t, 3), "t1": round(t + d, 3), "text": written(x)}); t += d
             scenes = [(0.0, ("topic", 0))]
             reels, note = [], ""
             try: reels = build_reels(job, caps, scenes)
