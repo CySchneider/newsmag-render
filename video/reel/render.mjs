@@ -5,7 +5,8 @@
 // Farben: Sport immer pink, sonst dunkel/hell im Wechsel (Worker: reelThemes). Pink bleibt überall Akzent.
 // Sichtbereich: Instagram-Feed schneidet auf 4:5 (y 285–1635), Vollbild deckt oben ~250 px, unten ab ~1480 und rechts ab x ~940 ab
 // → alles im Bereich y 340–1470, x 84–880, vertikal zentriert. Platz für den längsten Satz fest reserviert (nichts springt).
-// reels.json = { reels: [{ k, kicker, head, theme, list?, caps: [{ text, dur, wt? }], gap, end: { text, dur, w? } }] }
+// reels.json = { reels: [{ k, kicker, head, theme, list?, caps: [{ text, dur, wt? }], gap, end: { text, dur, w?, type? } }] }
+//   end.type "folgen" (13.11.2026): während des Endsatzes steht unter der Wellenform klein «Folg @newsmag.ch» (Platz fest reserviert).
 //   list (Runden-Reel, 11.11.2026): alle Sätze stehen als Liste untereinander (Resultate), der gesprochene ist hervorgehoben,
 //   Gesagtes voll, Kommendes gedämpft; Sätze mit leerem text werden nur gesprochen (Einleitung).
 //   wt = Wortanfänge (s, ab Reel-Beginn) aus den ElevenLabs-Zeitstempeln; fehlen sie, wird nach Zeichenlänge geschätzt.
@@ -18,7 +19,7 @@ const b64 = p => fs.readFileSync(new URL(p, import.meta.url)).toString('base64')
 const mono = b64('../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2');
 const font = b64('../node_modules/@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2');
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-const GLIDE = 0.45, HOLD = 0.25, FPS = 30, TOP_SAFE = 340, BOT_SAFE = 1470, CAP_GAP = 56, WAVE_GAP = 44, WAVE_H = 70;
+const GLIDE = 0.45, HOLD = 0.25, FPS = 30, TOP_SAFE = 340, BOT_SAFE = 1470, CAP_GAP = 56, WAVE_GAP = 44, WAVE_H = 70, FOLLOW_GAP = 40, FOLLOW_H = 44;
 // [Hintergrund, Schrift, Akzent in der Schlagzeile, Chip-Hintergrund, Chip-Schrift, Wellenform, Deckkraft «kommt noch»]
 const TH = {
   pink: ['#FF00A6', '#14161A', '#FFFFFF', '#14161A', '#FFFFFF', '#14161A', '80'],
@@ -40,6 +41,7 @@ body{font-family:A;position:relative}
 #cap .n{font-weight:800}
 #cap.list{font-size:56px;line-height:1.3;text-wrap:wrap}
 #cap.list div{margin-bottom:6px}
+#fol{position:absolute;left:84px;font-family:M;font-weight:500;font-size:34px;line-height:44px;letter-spacing:.04em}
 `;
 const headHtml = (h, acc) => { let pink = false; return String(h).split(/(\*)/).map(t => { if (t === '*') { pink = !pink; return ''; } return pink ? `<em style="color:${acc}">${esc(t)}</em>` : esc(t); }).join(''); };
 // Wörter eines Satzes mit Startzeit: aus Zeitstempeln (wt) oder nach Zeichenlänge geschätzt
@@ -56,9 +58,10 @@ const pg = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
 const meta = [];
 for (const r of R.reels) {
   const [bg, fg, acc, cb, cf, wave, dim] = TH[r.theme] || TH.dunkel;
+  const fol = r.end && r.end.type === 'folgen';
   const doc = (capHtml, g) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body style="background:${bg};color:${fg}">
     <div id="blk" style="top:${g.top}px;transform:scale(${g.s})"><span class="chip" style="background:${cb};color:${cf}">${esc(r.kicker || 'Newsmag')}</span><h1 id="ch">${headHtml(r.head, acc)}</h1></div>
-    <div id="cap"${r.list ? ' class="list"' : ''} style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div></body></html>`;
+    <div id="cap"${r.list ? ' class="list"' : ''} style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div>${g.fol ? `<div id="fol" style="top:${g.folTop}px;color:${fg}">Folg <span style="color:${acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6'}">@newsmag.ch</span></div>` : ''}</body></html>`;
   // Ereignisse: [Zeit, Wörter des Satzes, Index des gesprochenen Wortes]
   const ev = []; let t = 0;
   for (const [ci, c] of r.caps.entries()) { const ws = timed(c.text, t, t + c.dur, c.wt); ws.forEach((x, j) => ev.push([x.s, ws, j, ci])); t += c.dur; }
@@ -74,11 +77,12 @@ for (const r of R.reels) {
   const capMax = r.list
     ? await pg.evaluate(h => { const c = document.getElementById('cap'); c.className = 'list'; c.innerHTML = h; const m = c.offsetHeight; c.innerHTML = ''; c.className = ''; return m; }, listAll())
     : await pg.evaluate(ss => { const c = document.getElementById('cap'); let m = 0; for (const t of ss) { c.textContent = t; m = Math.max(m, c.offsetHeight); } c.textContent = ''; return m; }, sents);
-  const s1 = Math.max(0.35, Math.min(0.8, (BOT_SAFE - TOP_SAFE - CAP_GAP - capMax - WAVE_GAP - WAVE_H) / H.bh));
-  const blockH = H.bh * s1 + CAP_GAP + capMax + WAVE_GAP + WAVE_H;
+  const folH = fol ? FOLLOW_GAP + FOLLOW_H : 0;
+  const s1 = Math.max(0.35, Math.min(0.8, (BOT_SAFE - TOP_SAFE - CAP_GAP - capMax - WAVE_GAP - WAVE_H - folH) / H.bh));
+  const blockH = H.bh * s1 + CAP_GAP + capMax + WAVE_GAP + WAVE_H + folH;
   const top1 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - blockH) / 2), top0 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - H.bh) / 2);
-  const capTop = top1 + H.bh * s1 + CAP_GAP, waveY = Math.round(capTop + capMax + WAVE_GAP);
-  const geo = p => ({ top: top0 + (top1 - top0) * ease(p), s: 1 + (s1 - 1) * ease(p), capTop, capOp: Math.max(0, (p - .6) / .4) });
+  const capTop = top1 + H.bh * s1 + CAP_GAP, waveY = Math.round(capTop + capMax + WAVE_GAP), folTop = Math.min(BOT_SAFE - FOLLOW_H, waveY + WAVE_H + FOLLOW_GAP);
+  const geo = (p, f = false) => ({ top: top0 + (top1 - top0) * ease(p), s: 1 + (s1 - 1) * ease(p), capTop, capOp: Math.max(0, (p - .6) / .4), fol: f, folTop });
   const now = acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6';
   const capOne = (ws, j) => ws.map((x, q) => `<span style="color:${q === j ? now : q < j ? fg : fg + dim}"${/\d/.test(x.w) ? ' class="n"' : ''}>${esc(x.w)}</span>`).join(' ');
   // Liste: vor dem gesprochenen Satz voll, danach gedämpft; während des Endsatzes (ci −1) alles voll; vor dem ersten Satz alles gedämpft
@@ -97,7 +101,7 @@ for (const r of R.reels) {
   const dir = `${out}/${r.k}`; fs.mkdirSync(dir, { recursive: true });
   const list = [];
   for (const [i, [p, w, dur]] of frames.entries()) {
-    await pg.setContent(doc(w ? capHtml(w[0], w[1], w[2]) : r.list ? capList([], -1, null) : '', geo(p))); await pg.evaluate(() => document.fonts.ready);
+    await pg.setContent(doc(w ? capHtml(w[0], w[1], w[2]) : r.list ? capList([], -1, null) : '', geo(p, fol && w && w[2] === -1))); await pg.evaluate(() => document.fonts.ready);
     await pg.evaluate(fs => { document.getElementById('ch').style.fontSize = fs + 'px'; }, H.fs);
     const name = `f${String(i).padStart(3, '0')}.png`; await pg.screenshot({ path: `${dir}/${name}` });
     list.push(`file '${name}'\nduration ${Math.max(dur, 0.02).toFixed(3)}`);

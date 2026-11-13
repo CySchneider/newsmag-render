@@ -231,7 +231,7 @@ def build_reels(job, caps, scenes):
     for n, r in enumerate(specs):
         o = outros[(n + sum(map(ord, job.get("id", "")))) % len(outros)] if outros else None  # Endsatz wechselt pro Reel und Folge
         r["gap"] = 0.35
-        r["end"] = {"text": o["text"], "dur": o["dur"], "w": o.get("w"), "file": o["file"]} if o else None
+        r["end"] = {"text": o["text"], "dur": o["dur"], "w": o.get("w"), "file": o["file"], "type": o.get("type") or "website", "i": o.get("i")} if o else None
     json.dump({"reels": specs}, open("reels.json", "w"), ensure_ascii=False)
     subprocess.run(["node", os.path.join(HERE, "..", "reel", "render.mjs"), "reels.json", "reels"], check=True)
     meta = {m["k"]: m for m in json.load(open("reels/meta.json"))}
@@ -258,7 +258,8 @@ def build_reels(job, caps, scenes):
         try:
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", "-t", f"{T:.3f}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out], check=True)
-            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1)}); continue  # lokaler Test: nicht hochladen
+            end = {"type": e["type"], "i": e["i"]} if e else None  # Endsatz-Typ fürs Protokoll (Worker: meta.reel_ends)
+            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1), "end": end}); continue  # lokaler Test: nicht hochladen
             data = open(out, "rb").read()
             for attempt in range(3):  # Hochladen bis 3× (23.10.2026: 2 von 6 Reels gingen durch eine Zeitüberschreitung verloren)
                 try: http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}", data, {"Content-Type": "video/mp4"}, "POST", 300); break
@@ -266,7 +267,7 @@ def build_reels(job, caps, scenes):
                     print("Reel-Upload Versuch", attempt + 1, r["k"], ue)
                     if attempt == 2: raise
                     time.sleep(10)
-            done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1)})
+            done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1), "end": end})
             print("Reel", r["k"], r["theme"], round(T, 1), "s", os.path.getsize(out) // 1024, "KB")
         except Exception as ex:
             print("Reel FEHLER", r["k"], ex)
