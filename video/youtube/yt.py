@@ -206,6 +206,17 @@ def reel_outros(job):
     return got
 
 
+def reel_end_file(k, e):
+    """Endsatz, den der Worker für Reel k gewählt hat (job.reel_end, 15.11.2026: Sport-Reels eigene Teilen-Sätze); Fehler → None."""
+    try:
+        if os.environ.get("YT_JOB_FILE") and e.get("file"): return dict(e)  # lokaler Test
+        _, _, data = http(f"{BASE}/yt-outro?t={TOKEN}&k={k}", timeout=60)
+        f = f"outro-k{k}.wav"; open(f, "wb").write(data); return {**e, "file": f}
+    except Exception as ex:
+        print("Endsatz fehlt", k, ex)
+        return None
+
+
 def mean_db(args):
     """Mittlere Lautstärke (dB) per ffmpeg volumedetect; None bei Fehler."""
     try:
@@ -227,9 +238,11 @@ def end_gain(voice_db, end_file):
 def build_reels(job, caps, scenes):
     specs = reel_specs(job, caps, scenes)
     if not specs: return []
-    outros = reel_outros(job)
+    ends = job.get("reel_end") or {}  # Worker wählt pro Reel (Plan in Post-Reihenfolge, Sport eigene Sätze); fehlt bei Runden-Reels
+    outros = [] if ends else reel_outros(job)
     for n, r in enumerate(specs):
-        o = outros[(n + sum(map(ord, job.get("id", "")))) % len(outros)] if outros else None  # Endsatz wechselt pro Reel und Folge
+        if ends: o = reel_end_file(r["k"], ends[str(r["k"])]) if str(r["k"]) in ends else None
+        else: o = outros[(n + sum(map(ord, job.get("id", "")))) % len(outros)] if outros else None  # Endsatz wechselt pro Reel und Folge
         r["gap"] = 0.35
         r["end"] = {"text": o["text"], "dur": o["dur"], "w": o.get("w"), "file": o["file"], "type": o.get("type") or "website", "i": o.get("i")} if o else None
     json.dump({"reels": specs}, open("reels.json", "w"), ensure_ascii=False)
