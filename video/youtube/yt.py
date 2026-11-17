@@ -188,7 +188,7 @@ def reel_specs(job, caps, scenes):
                **({"wt": [round(x - t0, 3) for x in c["wt"]]} if c.get("wt") else {})} for j, c in enumerate(cs)]
         t = job["topics"][k]
         theme = (job.get("reel_themes") or {}).get(str(k)) or ("pink" if t.get("kicker") == "Sport" else "dunkel")
-        out.append({"k": k, "id": t["id"], "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("kicker") or "", "head": t["head"], "list": bool(job.get("list")),
+        out.append({"k": k, "id": t["id"], "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("chip") or t.get("kicker") or "", "head": t["head"], "list": bool(job.get("list")),  # chip: Sportart statt «Sport» (17.11.2026)
                     "publishers": t.get("publishers") or 0, "update": bool(t.get("update")), "theme": theme, "caps": rc})
     return out
 
