@@ -84,6 +84,7 @@ def build_timeline(job, sil):
     caps, scenes = [], []
     tw = [words(t["title"] + " " + t["lead"] + " " + t["head"]) for t in topics]
     last_topic = None
+    own = job["_own"] = [None] * len(paras)
     for i, p in enumerate(paras):
         text, a, b = p["text"], p["t0"], p["t1"]
         # Szene des Absatzes
@@ -97,6 +98,7 @@ def build_timeline(job, sil):
             score = [len(pw & w) + (0.5 if last_topic is not None and k == last_topic + 1 else 0) for k, w in enumerate(tw)]
             best = max(range(len(topics)), key=lambda k: score[k]) if topics else None
             if best is not None and score[best] >= 2: last_topic = best
+            own[i] = best if best is not None and score[best] >= 2 else None  # eigener Treffer (nicht geerbt) – für Reels (18.11.2026)
             sc = ("topic", last_topic) if last_topic is not None else ("title", None)
         scenes.append((max(0.0, a - 0.35), sc))
         # Sätze: Zeit nach Zeichen, an Sprechpausen angelehnt
@@ -157,8 +159,26 @@ def frames(job, caps, scenes, marks, end):
 # ── Einzel-Reels (seit 21.10.2026): ein Reel pro Thema aus Margareths Absatz, 9:16, Untertitel Satz für Satz ──
 # Der Worker gibt in job["reel_ids"] die Themen-Indizes vor (ohne Rückblick, ohne heute schon gepostete). Pro Thema der erste
 # zusammenhängende Absatz-Block; Rubrik-Ansage («Schweiz.») fällt weg, im Sport die Resultat-Liste («In den weiteren Spielen …»).
-SPORT_TAIL = re.compile(r"^(In den weiteren Spielen|In weiteren Spielen|Im weiteren Spiel|In der (Super|Challenge|National|Swiss) League|In der Champions League|Noch im Gang|Die weiteren Resultate)")
+SPORT_TAIL = re.compile(r"^(In den weiteren Spielen|In weiteren Spielen|Im weiteren Spiel|In der weiteren Partie|In den weiteren Partien|In der (Super|Challenge|National|Swiss) League|In der Champions League|Noch im Gang|Die weiteren Resultate|Im (Eis)?hockey|Im Fussball)")
 REEL_MAX = 88.0
+# Sportart eines Satzes – gleiche Stichworte wie POD_SPORTS im Worker (pipeline.js). Ein Reel mischt nie zwei Sportarten (18.11.2026:
+# Shaqiri-Reel bekam die Swiss-League-Resultate angehängt). Bei Wechsel wird ab diesem Satz geschnitten; der Worker prüft vor dem Posten nochmals.
+SPORTS = [("Handball", r"handball"), ("Unihockey", r"unihockey|floorball"), ("Basketball", r"basketball|\bnba\b"), ("Volleyball", r"volleyball"),
+          ("Eishockey", r"eishockey|\bhockey\b|genève-servette|national league|swiss league|\bnhl\b|\bkloten\b|\bdavos\b|gck lions|\bolten\b|\bvisp\b|\bsierre\b|\bajoie\b|\behc\b|\bhc\b|\bsc bern\b|\bscb\b|\bzsc\b|\btigers\b|gottéron|ambri|ambrì|\bpuck|powerplay"),
+          ("Fussball", r"fussball|super league|challenge league|champions league|europa league|conference league|bundesliga|premier league|\bserie a\b|\bla ?liga\b|\bligue 1\b|nations league|\bfc\b|young boys|\byb\b|grasshopper|\bgc\b|elfmeter|eigentor"),
+          ("Ski", r"\bski|weltcup|abfahrt|slalom|super-g|biathlon|langlauf|skispringen"),
+          ("Tennis", r"tennis|\batp\b|\bwta\b|grand slam|wimbledon"),
+          ("Motorsport", r"formel 1|\bf1\b|motogp|grand prix|rallye"), ("Rad", r"radrennen|tour de|\bgiro\b|vuelta|zeitfahr|radsport")]
+SPORTS = [(n, re.compile(r, re.I)) for n, r in SPORTS]
+
+
+def sports_in(text):
+    return {n for n, r in SPORTS if r.search(text or "")}
+
+
+def new_section(text):
+    t = (text or "").strip()
+    return any(t.startswith(r) for r in RUBRIK)
 
 
 def reel_specs(job, caps, scenes):
@@ -172,14 +192,23 @@ def reel_specs(job, caps, scenes):
         idx = [i for i, (_, sc) in enumerate(scenes) if sc == ("topic", k) and i >= first]
         if not idx: continue
         run = [idx[0]]
+        own = job.get("_own") or []
         for i in idx[1:]:
-            if i == run[-1] + 1: run.append(i)
+            # Folgeabsatz nur, wenn er selbst zum Thema passt (nicht bloss geerbt) und keine neue Rubrik beginnt (18.11.2026:
+            # Resultat-Absätze ohne eigenes Thema hingen sonst am vorherigen Thema – Shaqiri + Swiss League, Prag + Swiss League)
+            if i == run[-1] + 1 and (i >= len(own) or own[i] == k) and not new_section(job["paras"][i]["text"]): run.append(i)
             else: break
         a, b = job["paras"][run[0]]["t0"], job["paras"][run[-1]]["t1"]
         cs = [c for c in caps if c["t0"] >= a - 0.05 and c["t1"] <= b + 0.05]
         if job["topics"][k].get("kicker") == "Sport":
             for j, c in enumerate(cs):
                 if j and SPORT_TAIL.search(c["text"]): cs = cs[:j]; break
+        # nie zwei Sportarten in einem Reel: Sportart des Themas (Chip) bzw. des ersten Satzes mit Sportart; ab dem ersten fremden Satz schneiden
+        want = {job["topics"][k].get("chip")} & {n for n, _ in SPORTS}
+        for j, c in enumerate(cs):
+            sp = sports_in(c["text"])
+            if not want and sp: want = sp if len(sp) == 1 else set()
+            elif want and sp and not (sp & want): cs = cs[:j]; break
         while len(cs) > 1 and cs[-1]["t1"] - cs[0]["t0"] > REEL_MAX: cs = cs[:-1]
         if not cs: continue
         t0, t1 = max(0.0, cs[0]["t0"] - 0.12), cs[-1]["t1"] + 0.08
@@ -188,7 +217,7 @@ def reel_specs(job, caps, scenes):
                **({"wt": [round(x - t0, 3) for x in c["wt"]]} if c.get("wt") else {})} for j, c in enumerate(cs)]
         t = job["topics"][k]
         theme = (job.get("reel_themes") or {}).get(str(k)) or ("pink" if t.get("kicker") == "Sport" else "dunkel")
-        out.append({"k": k, "id": t["id"], "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("chip") or t.get("kicker") or "", "head": t["head"], "list": bool(job.get("list")),  # chip: Sportart statt «Sport» (17.11.2026)
+        out.append({"k": k, "id": t["id"], "paras": run, "text": " ".join(c["text"] for c in rc), "a": round(t0, 3), "b": round(t1, 3), "kicker": t.get("chip") or t.get("kicker") or "", "head": t["head"], "list": bool(job.get("list")),  # chip: Sportart statt «Sport» (17.11.2026)
                     "publishers": t.get("publishers") or 0, "update": bool(t.get("update")), "theme": theme, "caps": rc})
     return out
 
@@ -251,7 +280,7 @@ def build_reels(job, caps, scenes):
     beat = os.path.join(HERE, "..", "news-beat.m4a")
     done_list = []
     for r in specs:
-        m, out = meta[r["k"]], f"reels/reel-{r['k']}.mp4"
+        m, out = meta[r["k"]], f"reels/reel-{r['k']}-{r['id']}.mp4"  # Themen-ID im Namen (18.11.2026)
         v, T, wy, wc = r["b"] - r["a"], m["T"], m["waveY"], m["wave"]
         e = r.get("end")
         ins = ["-f", "concat", "-safe", "0", "-i", f"reels/{r['k']}/list.txt", "-i", "ep.mp3", "-stream_loop", "-1", "-i", beat] + (["-i", e["file"]] if e else [])
@@ -272,15 +301,15 @@ def build_reels(job, caps, scenes):
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", "-t", f"{T:.3f}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out], check=True)
             end = {"type": e["type"], "i": e["i"]} if e else None  # Endsatz-Typ fürs Protokoll (Worker: meta.reel_ends)
-            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1), "end": end}); continue  # lokaler Test: nicht hochladen
+            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end}); continue  # lokaler Test: nicht hochladen
             data = open(out, "rb").read()
             for attempt in range(3):  # Hochladen bis 3× (23.10.2026: 2 von 6 Reels gingen durch eine Zeitüberschreitung verloren)
-                try: http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}", data, {"Content-Type": "video/mp4"}, "POST", 300); break
+                try: http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}&id={r['id']}", data, {"Content-Type": "video/mp4"}, "POST", 300); break
                 except Exception as ue:
                     print("Reel-Upload Versuch", attempt + 1, r["k"], ue)
                     if attempt == 2: raise
                     time.sleep(10)
-            done_list.append({"k": r["k"], "id": r["id"], "dur": round(T, 1), "end": end})
+            done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end})
             print("Reel", r["k"], r["theme"], round(T, 1), "s", os.path.getsize(out) // 1024, "KB")
         except Exception as ex:
             print("Reel FEHLER", r["k"], ex)
