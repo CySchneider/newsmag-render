@@ -277,7 +277,7 @@ def build_reels(job, caps, scenes):
     os.makedirs("reels", exist_ok=True)
     for r in specs:  # Riso-Hintergrund (Variante C «Plakat», 18.11.2026): Worker erzeugt/prüft das Hochformat; fehlt es → Reel wie bisher
         try:
-            _, _, raw = http(f"{BASE}/yt-bg?t={TOKEN}&id={r['id']}", timeout=150)
+            _, _, raw = http(f"{BASE}/yt-bg?t={TOKEN}&id={r['id']}", timeout=240)
             if raw and len(raw) > 20000:
                 path = os.path.abspath(f"reels/bg-{r['k']}.jpg"); open(path, "wb").write(raw); r["bg"] = path
                 print(f"Reel {r['k']}: Riso-Hintergrund {len(raw) // 1024} KB", flush=True)
