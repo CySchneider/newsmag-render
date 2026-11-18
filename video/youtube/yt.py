@@ -274,6 +274,15 @@ def build_reels(job, caps, scenes):
         else: o = outros[(n + sum(map(ord, job.get("id", "")))) % len(outros)] if outros else None  # Endsatz wechselt pro Reel und Folge
         r["gap"] = 0.35
         r["end"] = {"text": o["text"], "dur": o["dur"], "w": o.get("w"), "file": o["file"], "type": o.get("type") or "website", "i": o.get("i")} if o else None
+    os.makedirs("reels", exist_ok=True)
+    for r in specs:  # Riso-Hintergrund (Variante C «Plakat», 18.11.2026): Worker erzeugt/prüft das Hochformat; fehlt es → Reel wie bisher
+        try:
+            _, _, raw = http(f"{BASE}/yt-bg?t={TOKEN}&id={r['id']}", timeout=150)
+            if raw and len(raw) > 20000:
+                path = os.path.abspath(f"reels/bg-{r['k']}.jpg"); open(path, "wb").write(raw); r["bg"] = path
+                print(f"Reel {r['k']}: Riso-Hintergrund {len(raw) // 1024} KB", flush=True)
+        except Exception as be:
+            print(f"Reel {r['k']}: kein Riso-Hintergrund ({be})", flush=True)
     json.dump({"reels": specs}, open("reels.json", "w"), ensure_ascii=False)
     subprocess.run(["node", os.path.join(HERE, "..", "reel", "render.mjs"), "reels.json", "reels"], check=True)
     meta = {m["k"]: m for m in json.load(open("reels/meta.json"))}
@@ -291,9 +300,10 @@ def build_reels(job, caps, scenes):
             voice += f"[3:a]asetpts=PTS-STARTPTS,adelay={int(m['e0'] * 1000)}:all=1,volume={g}[v1];[v0][v1]amix=inputs=2:normalize=0:duration=longest[vm];"
         else: voice += "[v0]anull[vm];"
         nv = bool(job.get("novoice"))  # ohne Stimme: keine Wellenform, Beat trägt (lauter)
+        nw = nv or bool(m.get("nowave"))  # Plakat-Reel (Riso-Hintergrund): keine Wellenform, Equalizer steckt im Bild
         fc = (voice + f"[vm]apad=whole_dur={T:.3f},asplit=2[vx][vw];"
               f"[vw]volume=2.2,showwaves=s=796x{70}:mode=cline:rate=30:colors={wc}:scale=sqrt:draw=full,format=yuva420p[w];"
-              + ("[0:v]fps=30,format=yuv420p[vout];[w]nullsink;" if nv else
+              + ("[0:v]fps=30,format=yuv420p[vout];[w]nullsink;" if nw else
                  f"[0:v]fps=30,format=yuv420p,drawbox=x=84:y={wy + 34}:w=796:h=2:c={wc}@0.5:t=fill:enable='gte(t,0.7)'[bl];[bl][w]overlay=84:{wy}:shortest=0:enable='gte(t,0.25)',format=yuv420p[vout];") +
               f"[2:a]atrim=0:{T:.3f},asetpts=PTS-STARTPTS,volume={0.32 if nv else 0.10},afade=t=out:st={T - 0.95:.3f}:d=0.95[beat];"
               f"[vx][beat]amix=inputs=2:normalize=0:duration=longest,atrim=0:{T:.3f},alimiter=limit=0.95[aout]")

@@ -10,6 +10,8 @@
 //   list (Runden-Reel, 11.11.2026): alle Sätze stehen als Liste untereinander (Resultate), der gesprochene ist hervorgehoben,
 //   Gesagtes voll, Kommendes gedämpft; Sätze mit leerem text werden nur gesprochen (Einleitung).
 //   wt = Wortanfänge (s, ab Reel-Beginn) aus den ElevenLabs-Zeitstempeln; fehlen sie, wird nach Zeichenlänge geschätzt.
+//   bg (18.11.2026, Variante C «Plakat»): Pfad zu einem Riso-Bild 1080×1920 → Bild randlos als Hintergrund, Papierton, Text unten
+//   auf einem Papier-Verlauf, keine Wellenform (yt.py lässt sie weg), dafür kleiner Equalizer im Rubrik-Chip; Sprechtext grösser.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -25,7 +27,10 @@ const TH = {
   pink: ['#FF00A6', '#14161A', '#FFFFFF', '#14161A', '#FFFFFF', '#14161A', '80'],
   hell: ['#F4F5F7', '#14161A', '#FF00A6', '#FF00A6', '#14161A', '#FF00A6', '66'],
   dunkel: ['#14161A', '#F4F5F7', '#FF00A6', '#FF00A6', '#14161A', '#FF00A6', '66'],
+  riso: ['#F1ECE2', '#1D1B19', '#FF00A6', '#14161A', '#FFFFFF', '#1D1B19', '70'],
+  risoSport: ['#F1ECE2', '#1D1B19', '#FF00A6', '#FF00A6', '#FFFFFF', '#1D1B19', '70'],
 };
+const PAPER = '241,236,226', BG_TEXT_TOP = 760; // Plakat: Textblock frühestens ab y 900 (darüber das Bild)
 const ease = p => p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 const css = `
 @font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
@@ -42,6 +47,10 @@ body{font-family:A;position:relative}
 #cap.list{font-size:56px;line-height:1.3;text-wrap:wrap}
 #cap.list div{margin-bottom:6px}
 #fol{position:absolute;left:84px;font-family:M;font-weight:500;font-size:34px;line-height:44px;letter-spacing:.04em}
+#bgi{position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover}
+#fd{position:absolute;left:0;right:0;bottom:0}
+.eq{display:inline-flex;align-items:flex-end;gap:6px;height:28px;margin-right:16px;vertical-align:-3px}.eq i{display:block;width:7px;background:currentColor}
+body.bg #cap{font-size:66px;right:120px}
 `;
 const headHtml = (h, acc) => { let pink = false; return String(h).split(/(\*)/).map(t => { if (t === '*') { pink = !pink; return ''; } return pink ? `<em style="color:${acc}">${esc(t)}</em>` : esc(t); }).join(''); };
 // Wörter eines Satzes mit Startzeit: aus Zeitstempeln (wt) oder nach Zeichenlänge geschätzt
@@ -57,10 +66,13 @@ const browser = await chromium.launch(process.env.CHROME ? { executablePath: pro
 const pg = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
 const meta = [];
 for (const r of R.reels) {
-  const [bg, fg, acc, cb, cf, wave, dim] = TH[r.theme] || TH.dunkel;
+  const bgImg = r.bg && fs.existsSync(r.bg) ? fs.readFileSync(r.bg).toString('base64') : null;
+  const [bg, fg, acc, cb, cf, wave, dim] = bgImg ? (r.theme === 'pink' ? TH.risoSport : TH.riso) : TH[r.theme] || TH.dunkel;
+  let frameNo = 0; const eqBars = () => { const n = frameNo++; return [0, 1, 2, 3].map(b => `<i style="height:${Math.round(30 + 70 * Math.abs(Math.sin(n * 1.7 + b * 2.3)))}%"></i>`).join(''); };
   const fol = r.end && r.end.type === 'folgen';
-  const doc = (capHtml, g) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body style="background:${bg};color:${fg}">
-    <div id="blk" style="top:${g.top}px;transform:scale(${g.s})"><span class="chip" style="background:${cb};color:${cf}">${esc(r.kicker || 'Newsmag')}</span><h1 id="ch">${headHtml(r.head, acc)}</h1></div>
+  const doc = (capHtml, g) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body${bgImg ? ' class="bg"' : ''} style="background:${bg};color:${fg}">
+    ${bgImg ? `<img id="bgi" src="data:image/jpeg;base64,${bgImg}"><div id="fd" style="top:${g.fadeTop}px;background:linear-gradient(to bottom,rgba(${PAPER},0) 0,rgba(${PAPER},.92) 110px,rgb(${PAPER}) 170px)"></div>` : ''}
+    <div id="blk" style="top:${g.top}px;transform:scale(${g.s})"><span class="chip" style="background:${cb};color:${cf}">${bgImg ? `<span class="eq">${g.eq || ''}</span>` : ''}${esc(r.kicker || 'Newsmag')}</span><h1 id="ch">${headHtml(r.head, acc)}</h1></div>
     <div id="cap"${r.list ? ' class="list"' : ''} style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div>${g.fol ? `<div id="fol" style="top:${g.folTop}px;color:${fg}">Folg <span style="color:${acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6'}">@newsmag.ch</span></div>` : ''}</body></html>`;
   // Ereignisse: [Zeit, Wörter des Satzes, Index des gesprochenen Wortes]
   const ev = []; let t = 0;
@@ -70,7 +82,7 @@ for (const r of R.reels) {
   ev.sort((a, b) => a[0] - b[0]);
   // Geometrie
   await pg.setContent(doc('', { top: 0, s: 1, capTop: 0, capOp: 0 })); await pg.evaluate(() => document.fonts.ready);
-  const H = await pg.evaluate(() => { const h = document.getElementById('ch'); let s = 190; while ((h.scrollWidth > 912 || h.offsetHeight > 1000) && s > 80) { s -= 4; h.style.fontSize = s + 'px'; } return { fs: s, bh: document.getElementById('blk').offsetHeight }; });
+  const H = await pg.evaluate(maxH => { const h = document.getElementById('ch'); let s = 190; while ((h.scrollWidth > 912 || h.offsetHeight > maxH) && s > 80) { s -= 4; h.style.fontSize = s + 'px'; } return { fs: s, bh: document.getElementById('blk').offsetHeight }; }, bgImg ? 460 : 1000);
   const sents = [...new Set(ev.map(e => e[1].map(x => x.w).join(' ')))];
   const lines = r.caps.map((c, i) => ({ i, text: String(c.text || '').trim() })).filter(l => l.text);
   const listAll = () => lines.map(l => `<div>${l.text.split(/\s+/).map(x => `<span${/\d/.test(x) ? ' class="n"' : ''}>${esc(x)}</span>`).join(' ')}</div>`).join('');
@@ -78,11 +90,20 @@ for (const r of R.reels) {
     ? await pg.evaluate(h => { const c = document.getElementById('cap'); c.className = 'list'; c.innerHTML = h; const m = c.offsetHeight; c.innerHTML = ''; c.className = ''; return m; }, listAll())
     : await pg.evaluate(ss => { const c = document.getElementById('cap'); let m = 0; for (const t of ss) { c.textContent = t; m = Math.max(m, c.offsetHeight); } c.textContent = ''; return m; }, sents);
   const folH = fol ? FOLLOW_GAP + FOLLOW_H : 0;
-  const s1 = Math.max(0.35, Math.min(0.8, (BOT_SAFE - TOP_SAFE - CAP_GAP - capMax - WAVE_GAP - WAVE_H - folH) / H.bh));
-  const blockH = H.bh * s1 + CAP_GAP + capMax + WAVE_GAP + WAVE_H + folH;
-  const top1 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - blockH) / 2), top0 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - H.bh) / 2);
-  const capTop = top1 + H.bh * s1 + CAP_GAP, waveY = Math.round(capTop + capMax + WAVE_GAP), folTop = Math.min(BOT_SAFE - FOLLOW_H, waveY + WAVE_H + FOLLOW_GAP);
-  const geo = (p, f = false) => ({ top: top0 + (top1 - top0) * ease(p), s: 1 + (s1 - 1) * ease(p), capTop, capOp: Math.max(0, (p - .6) / .4), fol: f, folTop });
+  let s1, top1, top0, capTop, waveY, folTop, fadeTop = 0;
+  if (bgImg) { // Plakat: Block unten bündig an BOT_SAFE, keine Wellenform
+    s1 = Math.max(0.42, Math.min(0.62, (BOT_SAFE - BG_TEXT_TOP - CAP_GAP - capMax - folH) / H.bh));
+    const blockH = H.bh * s1 + CAP_GAP + capMax + folH;
+    top1 = Math.max(TOP_SAFE, BOT_SAFE - blockH); top0 = Math.max(TOP_SAFE, BOT_SAFE - H.bh);
+    capTop = top1 + H.bh * s1 + CAP_GAP; waveY = Math.round(capTop + capMax); folTop = Math.min(BOT_SAFE - FOLLOW_H, waveY + FOLLOW_GAP);
+    fadeTop = Math.round(Math.min(top0, top1) - 150);
+  } else {
+    s1 = Math.max(0.35, Math.min(0.8, (BOT_SAFE - TOP_SAFE - CAP_GAP - capMax - WAVE_GAP - WAVE_H - folH) / H.bh));
+    const blockH = H.bh * s1 + CAP_GAP + capMax + WAVE_GAP + WAVE_H + folH;
+    top1 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - blockH) / 2); top0 = TOP_SAFE + Math.max(0, (BOT_SAFE - TOP_SAFE - H.bh) / 2);
+    capTop = top1 + H.bh * s1 + CAP_GAP; waveY = Math.round(capTop + capMax + WAVE_GAP); folTop = Math.min(BOT_SAFE - FOLLOW_H, waveY + WAVE_H + FOLLOW_GAP);
+  }
+  const geo = (p, f = false) => ({ top: top0 + (top1 - top0) * ease(p), s: 1 + (s1 - 1) * ease(p), capTop, capOp: Math.max(0, (p - .6) / .4), fol: f, folTop, fadeTop, eq: bgImg ? eqBars() : '' });
   const now = acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6';
   const capOne = (ws, j) => ws.map((x, q) => `<span style="color:${q === j ? now : q < j ? fg : fg + dim}"${/\d/.test(x.w) ? ' class="n"' : ''}>${esc(x.w)}</span>`).join(' ');
   // Liste: vor dem gesprochenen Satz voll, danach gedämpft; während des Endsatzes (ci −1) alles voll; vor dem ersten Satz alles gedämpft
@@ -108,7 +129,7 @@ for (const r of R.reels) {
   }
   list.push(list.at(-1).split('\n')[0]); // ffmpeg concat: letztes Bild doppelt
   fs.writeFileSync(`${dir}/list.txt`, list.join('\n') + '\n');
-  meta.push({ k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY, wave });
+  meta.push({ k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY, wave, nowave: !!bgImg });
 }
 fs.writeFileSync(`${out}/meta.json`, JSON.stringify(meta));
 await browser.close();
