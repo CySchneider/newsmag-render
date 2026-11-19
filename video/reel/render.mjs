@@ -6,13 +6,13 @@
 // Sichtbereich: Instagram-Feed schneidet auf 4:5 (y 285–1635), Vollbild deckt oben ~250 px, unten ab ~1480 und rechts ab x ~940 ab
 // → alles im Bereich y 340–1470, x 84–880, vertikal zentriert. Platz für den längsten Satz fest reserviert (nichts springt).
 // reels.json = { reels: [{ k, kicker, head, theme, list?, caps: [{ text, dur, wt? }], gap, end: { text, dur, w?, type? } }] }
-//   end.type "folgen" (13.11.2026): während des Endsatzes steht unter der Wellenform klein «Folg @newsmag.ch» (Platz fest reserviert).
+//   end.type "folgen" (13.11.2026): Einblendung «Folg @newsmag.ch» unter dem Text – seit 19.11.2026 aus (Cy: nicht klickbar, überflüssig).
 //   list (Runden-Reel, 11.11.2026): alle Sätze stehen als Liste untereinander (Resultate), der gesprochene ist hervorgehoben,
 //   Gesagtes voll, Kommendes gedämpft; Sätze mit leerem text werden nur gesprochen (Einleitung).
 //   wt = Wortanfänge (s, ab Reel-Beginn) aus den ElevenLabs-Zeitstempeln; fehlen sie, wird nach Zeichenlänge geschätzt.
 //   bg (18.11.2026, Plakat = Entwurf C auf newsmag.ch/bildtest/reel, von Cy freigegeben): Pfad zu einem Riso-Bild 1080×1920 →
 //   eigener Aufbau 1:1 wie der Entwurf (renderPoster): Bild randlos, Papier-Verlauf unten, Rubrik-Chip in Rubrikfarbe mit kleinem
-//   Equalizer, Schlagzeile Archivo 900 (76 → 56 px), Sprechtext 52 px (Entwurf 44, Cy: grösser), keine Wellenform (yt.py: nowave).
+//   Equalizer (weiche Schlaufe, yt.py legt sie über), Schlagzeile Archivo 900 (76 → 56 px), Sprechtext 52 px (Entwurf 44, Cy: grösser), keine Wellenform (yt.py: nowave).
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -22,7 +22,7 @@ const b64 = p => fs.readFileSync(new URL(p, import.meta.url)).toString('base64')
 const mono = b64('../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2');
 const font = b64('../node_modules/@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2');
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-const GLIDE = 0.45, HOLD = 0.25, FPS = 30, TOP_SAFE = 340, BOT_SAFE = 1470, CAP_GAP = 56, WAVE_GAP = 44, WAVE_H = 70, FOLLOW_GAP = 40, FOLLOW_H = 44;
+const GLIDE = 0.45, HOLD = 0.25, HOLD_P = 1.5, MAXL = 3, FPS = 30, TOP_SAFE = 340, BOT_SAFE = 1470, CAP_GAP = 56, WAVE_GAP = 44, WAVE_H = 70, FOLLOW_GAP = 40, FOLLOW_H = 44;
 // [Hintergrund, Schrift, Akzent in der Schlagzeile, Chip-Hintergrund, Chip-Schrift, Wellenform, Deckkraft «kommt noch»]
 const TH = {
   pink: ['#FF00A6', '#14161A', '#FFFFFF', '#14161A', '#FFFFFF', '#14161A', '80'],
@@ -56,7 +56,7 @@ function timed(text, t0, t1, wt) {
 }
 
 // ---- Plakat (Entwurf C) ----
-const RUB_C = { schweiz: '#D52B1E', international: '#2F5DA8', wirtschaft: '#7A4FB0', digital: '#3F5468', technik: '#66741C', kultur: '#B0660E', wissen: '#0F7C8C', medien: '#6E5A4A' };
+const RUB_C = { schweiz: '#D52B1E', international: '#2F5DA8', ausland: '#2F5DA8', 'kultur und wissen': '#B0660E', wirtschaft: '#7A4FB0', digital: '#3F5468', technik: '#66741C', kultur: '#B0660E', wissen: '#0F7C8C', medien: '#6E5A4A' };
 const PAPER = '241,236,226', INK = '#1D1B19';
 const pcss = `
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
@@ -64,57 +64,128 @@ const pcss = `
 #bgi{position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover}
 #fd{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(to bottom,rgba(${PAPER},0) 0%,rgba(${PAPER},.88) 14%,rgb(${PAPER}) 24%)}
 .pc{position:absolute;left:84px;display:flex;align-items:center;gap:16px;font-weight:800;font-size:34px;letter-spacing:.06em;text-transform:uppercase;padding:12px 22px;color:#fff}
-.eq{display:inline-flex;align-items:flex-end;gap:5px;height:30px}.eq i{display:block;width:7px;border-radius:2px;background:#fff}
+.eq{display:inline-flex;align-items:flex-end;gap:5px;height:30px;width:43px}.eq i{display:block;width:7px;border-radius:2px;background:#fff}
 .ph{position:absolute;left:84px;width:796px;font-weight:900;letter-spacing:-.02em;line-height:1.04;color:${INK}}
 .pt{position:absolute;left:84px;width:796px;font-weight:600;font-size:52px;line-height:1.28;color:${INK}}
 #fol{position:absolute;left:84px;font-family:A;font-weight:600;font-size:34px;color:${INK}}
 `;
+// Papierrand des Riso-Bilds finden (19.11.2026, Cy: im Vollbild oben ein «unschöner Balken»): FLUX setzt das Motiv als Druck mit
+// Papierrand oben und seitlich auf das Blatt. Gesucht wird der Motiv-Kasten (Zeilen/Spalten, die deutlich vom Papier abweichen);
+// das Bild wird so skaliert/verschoben, dass das Motiv oben und seitlich randlos ist. Unten bleibt Papier (Verlauf deckt).
+async function motifBox(pg, bgImg) {
+  await pg.setContent('<canvas id=c></canvas>');
+  return pg.evaluate(async src => {
+    const im = new Image(); im.src = src; await im.decode();
+    const W = 216, H = Math.round(W * im.naturalHeight / im.naturalWidth), c = document.getElementById('c'); c.width = W; c.height = H;
+    const x = c.getContext('2d'); x.drawImage(im, 0, 0, W, H); const d = x.getImageData(0, 0, W, H).data;
+    const px = (i, j) => { const o = (j * W + i) * 4; return [d[o], d[o + 1], d[o + 2]]; };
+    // Papierfarbe: Median der beiden oberen Ecken
+    const pp = []; for (let j = 1; j < 6; j++) for (const i of [1, 2, 3, W - 4, W - 3, W - 2]) pp.push(px(i, j));
+    const paper = [0, 1, 2].map(k => pp.map(p => p[k]).sort((a, b) => a - b)[pp.length >> 1]);
+    const off = (i, j) => { const p = px(i, j); return Math.abs(p[0] - paper[0]) + Math.abs(p[1] - paper[1]) + Math.abs(p[2] - paper[2]) > 45; };
+    const half = Math.round(H * 0.55);
+    const row = j => { let n = 0; for (let i = 0; i < W; i++) n += off(i, j); return n / W; };
+    const col = i => { let n = 0; for (let j = 0; j < half; j++) n += off(i, j); return n / half; };
+    let t = 0; while (t < H * 0.25 && row(t) < 0.35) t++;
+    let l = 0; while (l < W * 0.2 && col(l) < 0.35) l++;
+    let r = W - 1; while (r > W * 0.8 && col(r) < 0.35) r--;
+    if (t >= H * 0.25) t = 0; if (l >= W * 0.2) l = 0; if (r <= W * 0.8) r = W - 1;
+    const k = im.naturalWidth / W, m = 2; // 2 Raster-Pixel Sicherheitsrand (fransige Druckkante)
+    return { w: im.naturalWidth, h: im.naturalHeight, t: Math.max(0, t + (t ? m : 0)) * k, l: Math.max(0, l + (l ? m : 0)) * k, r: Math.min(W, r + 1 - (r < W - 1 ? m : 0)) * k };
+  }, 'data:image/jpeg;base64,' + bgImg);
+}
+
+// Equalizer im Chip: weich wie im Entwurf (CSS «w» 0,9 s ease-in-out 18 → 90 %, Versatz 0/.25/.5/.15 s). Bis zum Ende des Gleitens
+// steckt er im Bild (pro Bild nach Zeit), danach legt yt.py eine fertige 30-fps-Schlaufe (eq/eNN.png) darüber. Vorher wechselte er
+// pro Wort zufällig → wirkte ruckelnd wie ein Ladefehler (Cy 19.11.2026).
+const EQ_P = 0.9, EQ_D = [0, .25, .5, .15];
+const eqH = tt => EQ_D.map(dl => { const ph = (((tt + dl) % EQ_P) + EQ_P) % EQ_P / EQ_P; return 18 + 72 * (0.5 - 0.5 * Math.cos(2 * Math.PI * ph)); });
+const eqBars = tt => eqH(tt).map(h => `<i style="height:${h.toFixed(1)}%"></i>`).join('');
+
 async function renderPoster(pg, r, bgImg) {
   const chipC = r.theme === 'pink' ? '#FF00A6' : RUB_C[String(r.kicker || '').toLowerCase()] || '#14161A';
   const head = String(r.head).replace(/\*/g, '');
-  const ev = []; let t = 0;
-  for (const [ci, c] of r.caps.entries()) { const ws = timed(c.text, t, t + c.dur, c.wt); ws.forEach((x, j) => ev.push([x.s, ws, j, ci])); t += c.dur; }
+  // Sätze mit Wortzeiten; lange Sätze werden in Häppchen von höchstens MAXL Zeilen geteilt (19.11.2026, Cy: «nicht alles nach oben
+  // gequetscht» – der Platz richtet sich nach dem längsten Häppchen, vorher nach dem längsten Satz, z. B. 5 Zeilen)
+  const sl = []; let t = 0;
+  for (const [ci, c] of r.caps.entries()) { sl.push([timed(c.text, t, t + c.dur, c.wt), ci]); t += c.dur; }
   const V_END = t, E0 = V_END + (r.gap || 0.35), T_END = E0 + (r.end ? r.end.dur : 0) + 0.6;
-  if (r.end) { const ws = timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)); ws.forEach((x, j) => ev.push([x.s, ws, j, -1])); }
+  if (r.end) sl.push([timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)), -1]);
+  await pg.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${pcss}</style></head><body><div class="pt" id="pt"></div></body></html>`);
+  await pg.evaluate(() => document.fonts.ready);
+  const cuts = await pg.evaluate(([L, maxl]) => {
+    const p = document.getElementById('pt'), lh = 52 * 1.28, fits = w => { p.textContent = w.join(' '); return p.offsetHeight <= maxl * lh + 4; };
+    return L.map(w => {
+      if (fits(w)) return [w.length];
+      let n = 0; for (let i = 0; i < w.length;) { let j = i + 1; while (j < w.length && fits(w.slice(i, j + 1))) j++; i = j; n++; } // gierig: Anzahl Häppchen
+      for (; ; n++) { // gleichmässig auf n Häppchen verteilen, bevorzugt nach Satzzeichen
+        const out = []; let i = 0, ok = true;
+        for (let k = 0; k < n; k++) {
+          let j = k === n - 1 ? w.length : Math.round((k + 1) * w.length / n);
+          for (const d of [0, 1, -1, 2, -2]) { const q = j + d; if (k < n - 1 && q > i + 1 && q < w.length && /[,;:–]$/.test(w[q - 1])) { j = q; break; } }
+          if (!fits(w.slice(i, j))) { ok = false; break; } out.push(j - i); i = j;
+        }
+        if (ok) return out;
+        if (n > w.length) return [w.length];
+      }
+    });
+  }, [sl.map(([ws]) => ws.map(x => x.w)), MAXL]);
+  const ev = [];
+  sl.forEach(([ws, ci], si) => { let i = 0; for (const n of cuts[si]) { const ch = ws.slice(i, i + n); ch.forEach((x, j) => ev.push([x.s, ch, j, ci])); i += n; } });
   ev.sort((a, b) => a[0] - b[0]);
-  const fol = r.end && r.end.type === 'folgen';
+  const fol = false; // «Folg @newsmag.ch» als Einblendung weg (19.11.2026, Cy: nicht klickbar, Hinweise gibt es genug; Endsatz bleibt gesprochen + als Text)
+  const mb = await motifBox(pg, bgImg), bs = 1080 / (mb.r - mb.l); // Motiv randlos auf 1080 Breite
+  const bgCss = `left:${(-mb.l * bs).toFixed(1)}px;top:${(-mb.t * bs).toFixed(1)}px;width:${(mb.w * bs).toFixed(1)}px;height:${(mb.h * bs).toFixed(1)}px`;
   // Masse wie im Entwurf: Höhe der Schlagzeile bei 76/56 px und des längsten Satzes bei 52 px (Breite 796)
   await pg.setContent(`<!doctype html><html><head><meta charset="utf-8"><style>${pcss}</style></head><body><div class="ph" id="h76" style="font-size:76px">${esc(head)}</div><div class="ph" id="h56" style="font-size:56px">${esc(head)}</div><div class="pt" id="pt"></div></body></html>`);
   await pg.evaluate(() => document.fonts.ready);
   const sents = [...new Set(ev.map(e => e[1].map(x => x.w).join(' ')))];
   const M = await pg.evaluate(ss => { const p = document.getElementById('pt'); let m = 0; for (const x of ss) { p.textContent = x; m = Math.max(m, p.offsetHeight); } return { h76: document.getElementById('h76').offsetHeight, h56: document.getElementById('h56').offsetHeight, th: m }; }, sents);
   const SAFE = 1470, folH = fol ? 60 : 0;
-  // Bild 0: Chip 1130, Schlagzeile 1210 (76 px); danach Chip 1020, Schlagzeile +70 (56 px), Text +28 – nach oben verschoben, falls unten zu knapp
-  const yc0 = Math.min(1130, SAFE - 80 - M.h76), yc1 = Math.min(1020, SAFE - (70 + M.h56 + 28 + M.th + folH));
+  // Bild 0: Chip 1130, Schlagzeile +100 (76 px); danach Chip 1020, Schlagzeile +92 (56 px), Text +28 – nach oben verschoben, falls unten zu knapp
+  // (19.11.2026: Chip → Schlagzeile vorher +80/+70, Cy: zu wenig Abstand)
+  const HG0 = 100, HG1 = 92;
+  const yc0 = Math.min(1130, SAFE - HG0 - M.h76), yc1 = Math.min(1020, SAFE - (HG1 + M.h56 + 28 + M.th + folH));
   const fade0 = 48, fade1 = Math.round((1920 - yc1 + 90) / 19.2);
-  let n = 0;
-  const eq = () => { const k = n++; return [0, 1, 2, 3].map(b => `<i style="height:${Math.round(30 + 70 * Math.abs(Math.sin(k * 1.7 + b * 2.3)))}%"></i>`).join(''); };
   const capH = (ws, j) => ws.map((x, q) => `<span style="opacity:${q <= j ? 1 : .32}">${esc(x.w)}</span>`).join(' ');
-  const page = (p, w) => {
-    const e = ease(p), yc = yc0 + (yc1 - yc0) * e, fsz = 76 + (56 - 76) * e, yh = yc + 80 - 10 * e, yt = yc1 + 70 + M.h56 + 28;
-    const op = Math.max(0, (p - .6) / .4), fd = fade0 + (fade1 - fade0) * e, end = w && w[2] === -1;
+  const page = (p, w, tt) => {
+    const e = ease(p), yc = yc0 + (yc1 - yc0) * e, fsz = 76 + (56 - 76) * e, yh = yc + HG0 + (HG1 - HG0) * e, yt = yc1 + HG1 + M.h56 + 28;
+    const op = Math.max(0, (p - .85) / .15), fd = fade0 + (fade1 - fade0) * e, end = w && w[2] === -1;
     return `<!doctype html><html><head><meta charset="utf-8"><style>${pcss}</style></head><body>
-      <img id="bgi" src="data:image/jpeg;base64,${bgImg}"><div id="fd" style="height:${fd}%"></div>
-      <div class="pc" style="top:${yc}px;background:${chipC}"><span class="eq">${eq()}</span>${esc(r.kicker || 'Newsmag')}</div>
+      <img id="bgi" style="${bgCss}" src="data:image/jpeg;base64,${bgImg}"><div id="fd" style="height:${fd}%"></div>
+      <div class="pc" style="top:${yc}px;background:${chipC}"><span class="eq" id="eq">${tt == null ? '' : eqBars(tt)}</span>${esc(r.kicker || 'Newsmag')}</div>
       <div class="ph" style="top:${yh}px;font-size:${fsz}px">${esc(head)}</div>
       <div class="pt" style="top:${yt}px;opacity:${op}">${w ? capH(w[0], w[1]) : ''}</div>
       ${fol && end ? `<div id="fol" style="top:${yt + M.th + 18}px">Folg <span style="color:#FF00A6">@newsmag.ch</span></div>` : ''}</body></html>`;
   };
-  const frames = [[0, null, HOLD]], nG = Math.round(GLIDE * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
-  for (let i = 1; i <= nG; i++) { const e = at(HOLD + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS]); }
-  const t1 = HOLD + GLIDE + 1 / FPS, first = at(t1);
+  // Bild-Liste: [Gleit-Fortschritt, Wort, Dauer, Zeit für den Equalizer (null = leer, Schlaufe von yt.py)]
+  // Titelbild steht HOLD_P = 1,5 s (19.11.2026, Cy: erst den Titel lesen), Margareth spricht trotzdem sofort (keine stille Pause am Anfang)
+  const frames = [[0, null, HOLD_P, null]], nG = Math.round(GLIDE * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
+  for (let i = 1; i <= nG; i++) { const e = at(HOLD_P + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS, HOLD_P + i / FPS]); }
+  const t1 = HOLD_P + GLIDE + 1 / FPS, first = at(t1);
   const seq = [...(first ? [[t1, first[1], first[2], first[3]]] : []), ...ev.filter(x => x[0] > t1)];
-  for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2], seq[i][3]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0]]);
+  for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2], seq[i][3]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0], null]);
   const dir = `${out}/${r.k}`; fs.mkdirSync(dir, { recursive: true });
   const list = [];
-  for (const [i, [p, w, dur]] of frames.entries()) {
-    await pg.setContent(page(p, w)); await pg.evaluate(() => document.fonts.ready);
+  // Lage des Equalizers im Endzustand messen, Schlaufe (27 Bilder = 0,9 s) mit Phase ab t = 0 rendern
+  const EQ_T0 = +(HOLD_P + GLIDE).toFixed(3); // = Beginn des ersten Bilds nach dem Gleiten
+  const eqAt = async p => { await pg.setContent(page(p, null, 0)); await pg.evaluate(() => document.fonts.ready);
+    return pg.evaluate(() => { const b = document.getElementById('eq').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) }; }); };
+  const eqR = await eqAt(1), eqY0 = (await eqAt(0)).y; // Schlaufe auch während das Titelbild steht (Lage y0 bis HOLD_P)
+  fs.mkdirSync(`${dir}/eq`, { recursive: true });
+  const nEq = Math.round(EQ_P * FPS);
+  for (let i = 0; i < nEq; i++) {
+    await pg.setContent(`<!doctype html><html><head><style>${pcss}html,body{width:${eqR.w}px;height:${eqR.h}px;background:transparent}.eq{position:absolute;left:0;top:0}</style></head><body style="background:transparent"><span class="eq">${eqBars(i / FPS)}</span></body></html>`);
+    await pg.screenshot({ path: `${dir}/eq/e${String(i).padStart(2, '0')}.png`, omitBackground: true, clip: { x: 0, y: 0, width: eqR.w, height: eqR.h } });
+  }
+  for (const [i, [p, w, dur, tt]] of frames.entries()) {
+    await pg.setContent(page(p, w, tt)); await pg.evaluate(() => document.fonts.ready);
     const name = `f${String(i).padStart(3, '0')}.png`; await pg.screenshot({ path: `${dir}/${name}` });
     list.push(`file '${name}'\nduration ${Math.max(dur, 0.02).toFixed(3)}`);
   }
   list.push(list.at(-1).split('\n')[0]);
   fs.writeFileSync(`${dir}/list.txt`, list.join('\n') + '\n');
-  return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: INK, nowave: true };
+  return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: INK, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_P } };
 }
 
 fs.mkdirSync(out, { recursive: true });
@@ -124,7 +195,7 @@ const meta = [];
 for (const r of R.reels) {
   if (r.bg && fs.existsSync(r.bg)) { meta.push(await renderPoster(pg, r, fs.readFileSync(r.bg).toString('base64'))); continue; } // Plakat (Entwurf C)
   const [bg, fg, acc, cb, cf, wave, dim] = TH[r.theme] || TH.dunkel;
-  const fol = r.end && r.end.type === 'folgen';
+  const fol = false; // Einblendung «Folg @newsmag.ch» weg (19.11.2026, Cy)
   const doc = (capHtml, g) => `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body style="background:${bg};color:${fg}">
     <div id="blk" style="top:${g.top}px;transform:scale(${g.s})"><span class="chip" style="background:${cb};color:${cf}">${esc(r.kicker || 'Newsmag')}</span><h1 id="ch">${headHtml(r.head, acc)}</h1></div>
     <div id="cap"${r.list ? ' class="list"' : ''} style="top:${g.capTop}px;opacity:${g.capOp}">${capHtml}</div>${g.fol ? `<div id="fol" style="top:${g.folTop}px;color:${fg}">Folg <span style="color:${acc === '#FFFFFF' ? '#FFFFFF' : '#FF00A6'}">@newsmag.ch</span></div>` : ''}</body></html>`;

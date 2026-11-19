@@ -299,11 +299,16 @@ def build_reels(job, caps, scenes):
             print(f"Reel {r['k']}: Endsatz-Verstärkung {g}", flush=True)
             voice += f"[3:a]asetpts=PTS-STARTPTS,adelay={int(m['e0'] * 1000)}:all=1,volume={g}[v1];[v0][v1]amix=inputs=2:normalize=0:duration=longest[vm];"
         else: voice += "[v0]anull[vm];"
+        q = m.get("eq")  # Plakat-Reel: weiche Equalizer-Schlaufe im Chip (render.mjs eq/eNN.png, 19.11.2026)
+        if q: ins += ["-stream_loop", "-1", "-framerate", "30", "-i", f"reels/{r['k']}/eq/e%02d.png"]
+        qi = 4 if e else 3
         nv = bool(job.get("novoice"))  # ohne Stimme: keine Wellenform, Beat trägt (lauter)
         nw = nv or bool(m.get("nowave"))  # Plakat-Reel (Riso-Hintergrund): keine Wellenform, Equalizer steckt im Bild
         fc = (voice + f"[vm]apad=whole_dur={T:.3f},asplit=2[vx][vw];"
               f"[vw]volume=2.2,showwaves=s=796x{70}:mode=cline:rate=30:colors={wc}:scale=sqrt:draw=full,format=yuva420p[w];"
-              + ("[0:v]fps=30,format=yuv420p[vout];[w]nullsink;" if nw else
+              + ((f"[0:v]fps=30[bv];[{qi}:v]format=rgba,split[eqa][eqb];[bv][eqa]overlay={q['x']}:{q.get('y0', q['y'])}:shortest=0:eof_action=repeat:enable='lt(t,{q.get('h0', 0)})'[bq];"
+                  f"[bq][eqb]overlay={q['x']}:{q['y']}:shortest=0:eof_action=repeat:enable='gte(t,{q['t0']})',format=yuv420p[vout];[w]nullsink;" if q else
+                  "[0:v]fps=30,format=yuv420p[vout];[w]nullsink;") if nw else
                  f"[0:v]fps=30,format=yuv420p,drawbox=x=84:y={wy + 34}:w=796:h=2:c={wc}@0.5:t=fill:enable='gte(t,0.7)'[bl];[bl][w]overlay=84:{wy}:shortest=0:enable='gte(t,0.25)',format=yuv420p[vout];") +
               f"[2:a]atrim=0:{T:.3f},asetpts=PTS-STARTPTS,volume={0.32 if nv else 0.10},afade=t=out:st={T - 0.95:.3f}:d=0.95[beat];"
               f"[vx][beat]amix=inputs=2:normalize=0:duration=longest,atrim=0:{T:.3f},alimiter=limit=0.95[aout]")
