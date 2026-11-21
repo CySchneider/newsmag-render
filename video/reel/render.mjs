@@ -188,11 +188,13 @@ async function renderPoster(pg, r, bgImg) {
   return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: INK, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_P } };
 }
 
-// ---- Duoton (21.11.2026, Cy: «Newsmag Instagram wird wieder Typo. Riso weg.»; Entwurf docs/social.md «Reels im Duoton-Look») ----
-// r.duo = { kz, rub, heikel, aufmacher, credit, kind }, r.img = Graustufenbild (optional), r.edition = «am Mittag» …
-// Aufbau: Duoton-Bild oben (Fläche und Bild in derselben Rubrikfarbe, multiply wie auf newsmag.ch/?look=typo), darunter Marke + Chip
-// mit Equalizer + Kurzzeile riesig; nach HOLD_P gleitet alles nach oben (Bild kleiner, Kurzzeile kleiner), Sprechtext Wort für Wort.
-// Ränder (Instagram): oben nur Bild, Text x 72–900 (rechts Knopfspalte), unten bis 1470 (Feed 4:5 und Textfeld), darunter nur Dekor.
+// ---- Duoton (21.11.2026, Cy: «Newsmag Instagram wird wieder Typo. Riso weg.»; docs/social.md «Reels im Duoton-Look») ----
+// r.duo = { kz, rub, heikel, aufmacher, credit, kind }, r.img = Graustufenbild (optional).
+// Fassung 2 (21.11.2026 abends, Cy): kein Logo, keine Ausgabe («am Mittag» sagt im Feed niemandem etwas), kein «Aufmacher», keine Medienzahl;
+// Schrift so gross wie möglich; Bild läuft mit Verlauf hinter den Text statt harter Kante (wie die neue Website).
+// Aufbau: Duoton-Bild randlos oben (multiply auf der Rubrikfarbe), Verlauf in die Fläche; Chip (Rubrik/Sportart + Equalizer) + Kurzzeile riesig;
+// nach HOLD_P gleitet der Block nach oben, Kurzzeile kleiner, Sprechtext Wort für Wort. Pink = wichtigstes Thema der Folge (wie der pinke
+// Aufmacher der Website, ohne Wort), Schwarz = heikel. Ränder: Text x 72–900, y bis 1450; oben nur Bild; unten nur Rubrikwort als Dekor.
 const DUO_C = { // [Fläche, Schrift] – Farbstand 21.11.2026 (docs/website.md «Farben neu»)
   aufmacher: ['#FF00A6', '#14161A'], schweiz: ['#E30613', '#FFFFFF'], international: ['#3D74FF', '#FFFFFF'], ausland: ['#3D74FF', '#FFFFFF'],
   wirtschaft: ['#FF6A00', '#14161A'], sport: ['#00F07A', '#14161A'], kultur: ['#9D4BFF', '#FFFFFF'], medien: ['#9D4BFF', '#FFFFFF'],
@@ -200,27 +202,23 @@ const DUO_C = { // [Fläche, Schrift] – Farbstand 21.11.2026 (docs/website.md 
   heikel: ['#14161A', '#FFFFFF'] };
 const DUO_DECO = { international: 'International', schweiz: 'Schweiz', wirtschaft: 'Wirtschaft', sport: 'Sport', kultur: 'Kultur', medien: 'Medien',
   entertainment: 'Entertainment', digital: 'Digital', technik: 'Technik', wissen: 'Wissen', ausland: 'International' };
-const LOGO = b64('./logo.png');
-const D = { L: 72, W: 828, IMG0: 787, IMG1: 500, Y0: 835, Y1: 540, KZ: 150, KZ1: 0.62, CAP: 70, CAPLH: 1.14, MAXL: 4, BOT: 1470 };
+// IMG0/IMG1 = Bildhöhe Titel/Sprechen, FD = Verlauf (Anteil der Bildhöhe: ab .. bis deckend), KZ = grösste Kurzzeile, CAP = Sprechtext
+const D = { L: 72, W: 828, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 84, CAPLH: 1.12, MAXL: 4, BOT: 1450, Y1: 470 };
 const dcss = `
 @font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden}body{font-family:A;position:relative}
 #im{position:absolute;left:0;top:0;width:1080px;overflow:hidden}
-#im img{width:100%;height:100%;object-fit:cover;object-position:50% 30%;display:block}
-#im small{position:absolute;left:${D.L}px;bottom:14px;font-family:M;font-size:19px;letter-spacing:.02em;opacity:.5}
+#im img{width:100%;height:100%;object-fit:cover;object-position:50% 25%;display:block}
+#im .fd{position:absolute;inset:0}
+#cr{position:absolute;right:26px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
 #dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
 #tx{position:absolute;left:${D.L}px;width:${D.W}px}
-.br{display:flex;align-items:center;gap:18px;font-family:M;font-size:30px;letter-spacing:.05em;text-transform:uppercase;height:56px}
-.br i{width:56px;height:56px;background:#fff;border-radius:9px;display:flex;align-items:center;justify-content:center}
-.br i img{width:44px;height:44px;display:block}
-.br strong{font-weight:900;font-stretch:85%;font-variation-settings:'wdth' 85,'wght' 900;font-size:46px;letter-spacing:.02em;font-family:A}
-.mt{display:flex;align-items:center;gap:18px;font-family:M;font-size:30px;letter-spacing:.04em;text-transform:uppercase;margin-top:22px;height:50px}
-.ch{display:flex;align-items:center;gap:14px;padding:6px 16px;border-radius:9px;font-weight:500;height:50px}
-.eq{display:inline-flex;align-items:flex-end;gap:6px;height:28px;width:45px}.eq i{display:block;width:9px;border-radius:2px;background:var(--eqc)}
-#kz{font-weight:900;font-stretch:78%;font-variation-settings:'wdth' 78,'wght' 900;text-transform:uppercase;line-height:.9;margin-top:26px;text-wrap:balance}
-#cp{position:absolute;left:${D.L}px;width:${D.W}px;font-weight:700;font-stretch:88%;font-variation-settings:'wdth' 88,'wght' 700;font-size:${D.CAP}px;line-height:${D.CAPLH};text-wrap:balance}
-#cp mark{padding:0 8px;border-radius:8px;font-weight:900}
+.ch{display:inline-flex;align-items:center;gap:16px;padding:8px 20px;border-radius:10px;font-family:M;font-weight:500;font-size:34px;letter-spacing:.06em;text-transform:uppercase;height:60px}
+.eq{display:inline-flex;align-items:flex-end;gap:6px;height:30px;width:45px}.eq i{display:block;width:9px;border-radius:2px;background:var(--eqc)}
+#kz{font-weight:900;font-stretch:76%;font-variation-settings:'wdth' 76,'wght' 900;text-transform:uppercase;line-height:.88;margin-top:28px;text-wrap:balance}
+#cp{position:absolute;left:${D.L}px;width:${D.W}px;font-weight:700;font-stretch:86%;font-variation-settings:'wdth' 86,'wght' 700;font-size:${D.CAP}px;line-height:${D.CAPLH};text-wrap:balance}
+#cp mark{padding:0 10px;border-radius:10px;font-weight:900}
 `;
 async function renderDuo(pg, r, img) {
   const d = r.duo || {}, rk = String(r.rub || d.rub || r.kicker || '').toLowerCase();
@@ -229,22 +227,23 @@ async function renderDuo(pg, r, img) {
   const chipBg = dark ? '#FFFFFF' : '#14161A', chipFg = dark ? '#14161A' : '#FFFFFF';
   const markBg = dark ? '#FFFFFF' : '#14161A', markFg = dark ? '#14161A' : (key === 'aufmacher' ? '#FFFFFF' : bgc);
   const kz = String(d.kz || r.head || '').replace(/\*/g, '').trim();
-  const chip = d.aufmacher && !d.heikel ? 'Aufmacher' : (r.kicker || 'Newsmag');
-  const metaTxt = [d.aufmacher && !d.heikel && r.kicker ? r.kicker : '', (r.publishers || 0) > 1 ? `${r.publishers} Medien` : ''].filter(Boolean).join(' · ');
+  const chip = r.kicker || d.rub || 'Newsmag';
   const deco = DUO_DECO[rk] || '';
   const hasImg = !!img;
   const imgTag = hasImg ? `<img src="data:image/jpeg;base64,${img}" style="${d.heikel ? 'filter:contrast(1.08) brightness(.86)' : 'mix-blend-mode:multiply'}">` : '';
-  // Sätze mit Wortzeiten, lange Sätze in Häppchen von höchstens D.MAXL Zeilen (wie Plakat)
+  const fade = `linear-gradient(to bottom,${bgc}00 0%,${bgc}00 ${D.FD[0] * 100}%,${bgc}D9 ${((D.FD[0] + D.FD[1]) / 2) * 100}%,${bgc} ${D.FD[1] * 100}%)`;
   const sl = []; let t = 0;
   for (const [ci, c] of r.caps.entries()) { sl.push([timed(c.text, t, t + c.dur, c.wt), ci]); t += c.dur; }
   const V_END = t, E0 = V_END + (r.gap || 0.35), T_END = E0 + (r.end ? r.end.dur : 0) + 0.6;
   if (r.end) sl.push([timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)), -1]);
   const shell = body => `<!doctype html><html><head><meta charset="utf-8"><style>${dcss}</style></head><body style="background:${bgc};color:${fgc};--eqc:${chipFg}">${body}</body></html>`;
-  // Kurzzeile: grösste Schrift ≤ D.KZ, die in die Breite passt (höchstens 3 Zeilen)
-  await pg.setContent(shell(`<div id="tx"><div id="kz" style="font-size:${D.KZ}px">${esc(kz)}</div></div><div id="cp"></div>`));
+  // Kurzzeile so gross wie möglich: passt in die Breite, höchstens 3 Zeilen, Block (Chip + Kurzzeile) über D.BOT
+  await pg.setContent(shell(`<div id="tx"><span class="ch">x</span><div id="kz" style="font-size:${D.KZ}px">${esc(kz)}</div></div><div id="cp"></div>`));
   await pg.evaluate(() => document.fonts.ready);
-  const kzFs = await pg.evaluate(([max]) => { const h = document.getElementById('kz'); let s = max; const lh = () => h.offsetHeight / (s * .9);
-    while ((h.scrollWidth > h.parentElement.offsetWidth + 2 || lh() > 3.2) && s > 70) { s -= 4; h.style.fontSize = s + 'px'; } return s; }, [D.KZ]);
+  const K = await pg.evaluate(([max, min]) => { const h = document.getElementById('kz'), tx = document.getElementById('tx'); let s = max;
+    const lines = () => Math.round(h.offsetHeight / (s * .88));
+    while ((h.scrollWidth > tx.offsetWidth + 2 || lines() > 3) && s > min) { s -= 4; h.style.fontSize = s + 'px'; }
+    return { fs: s, bh: tx.offsetHeight }; }, [D.KZ, D.KZMIN]);
   const cuts = await pg.evaluate(([L, maxl, fsz, lhk]) => {
     const p = document.getElementById('cp'), lh = fsz * lhk, fits = w => { p.textContent = w.join(' '); return p.offsetHeight <= maxl * lh + 4; };
     return L.map(w => {
@@ -265,27 +264,25 @@ async function renderDuo(pg, r, img) {
   const ev = [];
   sl.forEach(([ws, ci], si) => { let i = 0; for (const n of cuts[si]) { const ch = ws.slice(i, i + n); ch.forEach((x, j) => ev.push([x.s, ch, j, ci])); i += n; } });
   ev.sort((a, b) => a[0] - b[0]);
-  const yImg = p => hasImg ? D.IMG0 + (D.IMG1 - D.IMG0) * p : 0;
-  // ohne Bild: Block weiter oben, Kurzzeile bleibt grösser
-  const y0 = hasImg ? D.Y0 : 520, y1 = hasImg ? D.Y1 : 400;
+  // Titelbild: Block unten bündig über D.BOT; ohne Bild etwas höher (optische Mitte)
+  const y0 = hasImg ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760), y1 = D.Y1;
+  const kz1 = hasImg ? D.KZ1 : 0.66;
   const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
     const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
-  const page = (p, w, tt) => {
-    const e = ease(p), ih = yImg(e), y = y0 + (y1 - y0) * e, kf = kzFs * (1 + ((hasImg ? D.KZ1 : 0.78) - 1) * e), op = Math.max(0, (p - .85) / .15);
-    return shell(`${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}${d.credit ? `<small style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</small>` : ''}</div>` : ''}
+  const page = (p, w, tt, capTop) => {
+    const e = ease(p), ih = D.IMG0 + (D.IMG1 - D.IMG0) * e, y = y0 + (y1 - y0) * e, kf = K.fs * (1 + (kz1 - 1) * e), op = Math.max(0, (p - .85) / .15);
+    return shell(`${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
+      ${hasImg && d.credit ? `<div id="cr" style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</div>` : ''}
       <div id="dc" style="color:${fgc}">${esc(deco)}</div>
       <div id="tx" style="top:${y.toFixed(1)}px">
-        <div class="br"><i><img src="data:image/png;base64,${LOGO}"></i><strong>NEWSMAG</strong>${esc(r.edition || '')}</div>
-        <div class="mt"><span class="ch" style="background:${chipBg};color:${chipFg}"><span class="eq" id="eq">${tt == null ? '' : eqBars(tt)}</span>${esc(chip)}</span>${esc(metaTxt)}</div>
+        <span class="ch" style="background:${chipBg};color:${chipFg}"><span class="eq" id="eq">${tt == null ? '' : eqBars(tt)}</span>${esc(chip)}</span>
         <div id="kz" style="font-size:${kf.toFixed(1)}px">${esc(kz)}</div>
       </div>
-      <div id="cp" style="top:${'CAPTOP'}px;opacity:${op}">${w ? capH(w[0], w[1]) : ''}</div>`);
+      <div id="cp" style="top:${capTop}px;opacity:${op}">${w ? capH(w[0], w[1]) : ''}</div>`);
   };
-  // Lage des Sprechtexts im Endzustand messen (unter der kleinen Kurzzeile), Platz für das längste Häppchen prüfen
-  await pg.setContent(page(1, null, 0).replace("'CAPTOP'", '0').replace('CAPTOP', '0')); await pg.evaluate(() => document.fonts.ready);
-  const kzBot = await pg.evaluate(() => { const b = document.getElementById('kz').getBoundingClientRect(); return Math.round(b.bottom); });
-  const capTop = kzBot + 40;
-  const P = (p, w, tt) => page(p, w, tt).replace('CAPTOP', String(capTop));
+  await pg.setContent(page(1, null, 0, 0)); await pg.evaluate(() => document.fonts.ready);
+  const capTop = await pg.evaluate(() => Math.round(document.getElementById('kz').getBoundingClientRect().bottom)) + 44;
+  const P = (p, w, tt) => page(p, w, tt, capTop);
   const frames = [[0, null, HOLD_P, null]], nG = Math.round(GLIDE * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
   for (let i = 1; i <= nG; i++) { const e = at(HOLD_P + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS, HOLD_P + i / FPS]); }
   const t1 = HOLD_P + GLIDE + 1 / FPS, first = at(t1);
