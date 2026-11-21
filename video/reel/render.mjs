@@ -203,7 +203,7 @@ const DUO_C = { // [Fläche, Schrift] – Farbstand 21.11.2026 (docs/website.md 
 const DUO_DECO = { international: 'International', schweiz: 'Schweiz', wirtschaft: 'Wirtschaft', sport: 'Sport', kultur: 'Kultur', medien: 'Medien',
   entertainment: 'Entertainment', digital: 'Digital', technik: 'Technik', wissen: 'Wissen', ausland: 'International' };
 // IMG0/IMG1 = Bildhöhe Titel/Sprechen, FD = Verlauf (Anteil der Bildhöhe: ab .. bis deckend), KZ = grösste Kurzzeile, CAP = Sprechtext
-const D = { L: 72, W: 828, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 84, CAPLH: 1.12, MAXL: 4, BOT: 1450, Y1: 470 };
+const D = { L: 72, W: 828, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 84, CAPLH: 1.12, MAXL: 4, BOT: 1450, Y1MIN: 470, Y1MAX: 700, HOLD: 2.6, GLIDE: 0.6 };
 const dcss = `
 @font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
@@ -265,8 +265,9 @@ async function renderDuo(pg, r, img) {
   sl.forEach(([ws, ci], si) => { let i = 0; for (const n of cuts[si]) { const ch = ws.slice(i, i + n); ch.forEach((x, j) => ev.push([x.s, ch, j, ci])); i += n; } });
   ev.sort((a, b) => a[0] - b[0]);
   // Titelbild: Block unten bündig über D.BOT; ohne Bild etwas höher (optische Mitte)
-  const y0 = hasImg ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760), y1 = D.Y1;
   const kz1 = hasImg ? D.KZ1 : 0.66;
+  const y0 = hasImg ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760);
+  let y1 = D.Y1MIN;
   const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
     const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
   const page = (p, w, tt, capTop) => {
@@ -280,17 +281,22 @@ async function renderDuo(pg, r, img) {
       </div>
       <div id="cp" style="top:${capTop}px;opacity:${op}">${w ? capH(w[0], w[1]) : ''}</div>`);
   };
+  // Sprechphase so tief wie möglich (21.11.2026, Cy: «nicht alles so hochgedrängt»): Platz für Block + längstes Häppchen bis D.BOT
   await pg.setContent(page(1, null, 0, 0)); await pg.evaluate(() => document.fonts.ready);
-  const capTop = await pg.evaluate(() => Math.round(document.getElementById('kz').getBoundingClientRect().bottom)) + 44;
+  const M = await pg.evaluate(ss => { const kb = document.getElementById('kz').getBoundingClientRect().bottom, tt = document.getElementById('tx').getBoundingClientRect().top, p = document.getElementById('cp');
+    let m = 0; for (const x of ss) { p.textContent = x; m = Math.max(m, p.offsetHeight); } return { blk: Math.round(kb - tt), cap: m }; }, [...new Set(ev.map(e => e[1].map(x => x.w).join(' ')))]);
+  y1 = Math.max(D.Y1MIN, Math.min(D.Y1MAX, D.BOT - (M.blk + 44 + M.cap)));
+  const capTop = Math.round(y1 + M.blk + 44);
   const P = (p, w, tt) => page(p, w, tt, capTop);
-  const frames = [[0, null, HOLD_P, null]], nG = Math.round(GLIDE * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
-  for (let i = 1; i <= nG; i++) { const e = at(HOLD_P + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS, HOLD_P + i / FPS]); }
-  const t1 = HOLD_P + GLIDE + 1 / FPS, first = at(t1);
+  const HOLD_D = D.HOLD, GLIDE_D = D.GLIDE; // Titelbild steht länger und gleitet weicher (21.11.2026, Cy: «die grosse Titelzeile etwas wirken lassen»)
+  const frames = [[0, null, HOLD_D, null]], nG = Math.round(GLIDE_D * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
+  for (let i = 1; i <= nG; i++) { const e = at(HOLD_D + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS, HOLD_D + i / FPS]); }
+  const t1 = HOLD_D + GLIDE_D + 1 / FPS, first = at(t1);
   const seq = [...(first ? [[t1, first[1], first[2], first[3]]] : []), ...ev.filter(x => x[0] > t1)];
   for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2], seq[i][3]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0], null]);
   const dir = `${out}/${r.k}`; fs.mkdirSync(dir, { recursive: true });
   const list = [];
-  const EQ_T0 = +(HOLD_P + GLIDE).toFixed(3);
+  const EQ_T0 = +(HOLD_D + GLIDE_D).toFixed(3);
   const eqAt = async p => { await pg.setContent(P(p, null, 0)); await pg.evaluate(() => document.fonts.ready);
     return pg.evaluate(() => { const b = document.getElementById('eq').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) }; }); };
   const eqR = await eqAt(1), eqY0 = (await eqAt(0)).y;
@@ -307,7 +313,7 @@ async function renderDuo(pg, r, img) {
   }
   list.push(list.at(-1).split('\n')[0]);
   fs.writeFileSync(`${dir}/list.txt`, list.join('\n') + '\n');
-  return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: fgc, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_P } };
+  return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: fgc, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_D } };
 }
 
 fs.mkdirSync(out, { recursive: true });
