@@ -275,8 +275,23 @@ def build_reels(job, caps, scenes):
         r["gap"] = 0.35
         r["end"] = {"text": o["text"], "dur": o["dur"], "w": o.get("w"), "file": o["file"], "type": o.get("type") or "website", "i": o.get("i")} if o else None
     os.makedirs("reels", exist_ok=True)
-    for r in specs:  # Riso-Hintergrund (Variante C «Plakat», 18.11.2026): Worker erzeugt/prüft das Hochformat; fehlt es → Reel wie bisher
-        try:
+    for r in specs:
+        r["edition"] = job.get("slot_title") or ""
+        if not r.get("list") and not os.environ.get("YT_JOB_FILE"):  # Duoton-Look (21.11.2026): nur wenn der Worker ihn liefert (Telegram «reelbild duo»)
+            try:
+                _, _, raw = http(f"{BASE}/yt-duo?t={TOKEN}&id={r['id']}", timeout=30)
+                r["duo"] = json.loads(raw)
+                try:
+                    _, _, im = http(f"{BASE}/yt-duo?t={TOKEN}&id={r['id']}&img=1", timeout=180)
+                    if im and len(im) > 8000:
+                        path = os.path.abspath(f"reels/duo-{r['k']}.jpg"); open(path, "wb").write(im); r["img"] = path
+                except Exception as ie:
+                    print(f"Reel {r['k']}: kein Duoton-Bild ({ie})", flush=True)
+                print(f"Reel {r['k']}: Duoton, Kurzzeile «{r['duo'].get('kz') or '-'}», Bild {'ja' if r.get('img') else 'nein'}", flush=True)
+                continue
+            except Exception:
+                pass  # 404 = Duoton aus → Riso bzw. Schrift wie bisher
+        try:  # Riso-Hintergrund (Variante C «Plakat», 18.11.2026): Worker erzeugt/prüft das Hochformat; fehlt es → Reel wie bisher
             _, _, raw = http(f"{BASE}/yt-bg?t={TOKEN}&id={r['id']}", timeout=240)
             if raw and len(raw) > 20000:
                 path = os.path.abspath(f"reels/bg-{r['k']}.jpg"); open(path, "wb").write(raw); r["bg"] = path
@@ -316,7 +331,7 @@ def build_reels(job, caps, scenes):
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + ins + ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]", "-t", f"{T:.3f}",
                             "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", out], check=True)
             end = {"type": e["type"], "i": e["i"]} if e else None  # Endsatz-Typ fürs Protokoll (Worker: meta.reel_ends)
-            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end}); continue  # lokaler Test: nicht hochladen
+            if os.environ.get("YT_JOB_FILE"): done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end, "credit": (r.get("duo") or {}).get("credit")}); continue  # lokaler Test: nicht hochladen
             data = open(out, "rb").read()
             for attempt in range(3):  # Hochladen bis 3× (23.10.2026: 2 von 6 Reels gingen durch eine Zeitüberschreitung verloren)
                 try: http(f"{BASE}/yt-reel?t={TOKEN}&k={r['k']}&id={r['id']}", data, {"Content-Type": "video/mp4"}, "POST", 300); break
@@ -324,7 +339,7 @@ def build_reels(job, caps, scenes):
                     print("Reel-Upload Versuch", attempt + 1, r["k"], ue)
                     if attempt == 2: raise
                     time.sleep(10)
-            done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end})
+            done_list.append({"k": r["k"], "id": r["id"], "paras": r["paras"], "text": r["text"], "dur": round(T, 1), "end": end, "credit": (r.get("duo") or {}).get("credit") if r.get("img") else None})
             print("Reel", r["k"], r["theme"], round(T, 1), "s", os.path.getsize(out) // 1024, "KB")
         except Exception as ex:
             print("Reel FEHLER", r["k"], ex)

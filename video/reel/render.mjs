@@ -188,11 +188,137 @@ async function renderPoster(pg, r, bgImg) {
   return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: INK, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_P } };
 }
 
+// ---- Duoton (21.11.2026, Cy: «Newsmag Instagram wird wieder Typo. Riso weg.»; Entwurf docs/social.md «Reels im Duoton-Look») ----
+// r.duo = { kz, rub, heikel, aufmacher, credit, kind }, r.img = Graustufenbild (optional), r.edition = «am Mittag» …
+// Aufbau: Duoton-Bild oben (Fläche und Bild in derselben Rubrikfarbe, multiply wie auf newsmag.ch/?look=typo), darunter Marke + Chip
+// mit Equalizer + Kurzzeile riesig; nach HOLD_P gleitet alles nach oben (Bild kleiner, Kurzzeile kleiner), Sprechtext Wort für Wort.
+// Ränder (Instagram): oben nur Bild, Text x 72–900 (rechts Knopfspalte), unten bis 1470 (Feed 4:5 und Textfeld), darunter nur Dekor.
+const DUO_C = { // [Fläche, Schrift] – Farbstand 21.11.2026 (docs/website.md «Farben neu»)
+  aufmacher: ['#FF00A6', '#14161A'], schweiz: ['#E30613', '#FFFFFF'], international: ['#3D74FF', '#FFFFFF'], ausland: ['#3D74FF', '#FFFFFF'],
+  wirtschaft: ['#FF6A00', '#14161A'], sport: ['#00F07A', '#14161A'], kultur: ['#9D4BFF', '#FFFFFF'], medien: ['#9D4BFF', '#FFFFFF'],
+  entertainment: ['#FFE500', '#14161A'], digital: ['#00D9E8', '#14161A'], technik: ['#C9CED6', '#14161A'], wissen: ['#C9CED6', '#14161A'],
+  heikel: ['#14161A', '#FFFFFF'] };
+const DUO_DECO = { international: 'International', schweiz: 'Schweiz', wirtschaft: 'Wirtschaft', sport: 'Sport', kultur: 'Kultur', medien: 'Medien',
+  entertainment: 'Entertainment', digital: 'Digital', technik: 'Technik', wissen: 'Wissen', ausland: 'International' };
+const LOGO = b64('./logo.png');
+const D = { L: 72, W: 828, IMG0: 787, IMG1: 500, Y0: 835, Y1: 540, KZ: 150, KZ1: 0.62, CAP: 70, CAPLH: 1.14, MAXL: 4, BOT: 1470 };
+const dcss = `
+@font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
+@font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
+*{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden}body{font-family:A;position:relative}
+#im{position:absolute;left:0;top:0;width:1080px;overflow:hidden}
+#im img{width:100%;height:100%;object-fit:cover;object-position:50% 30%;display:block}
+#im small{position:absolute;left:${D.L}px;bottom:14px;font-family:M;font-size:19px;letter-spacing:.02em;opacity:.5}
+#dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
+#tx{position:absolute;left:${D.L}px;width:${D.W}px}
+.br{display:flex;align-items:center;gap:18px;font-family:M;font-size:30px;letter-spacing:.05em;text-transform:uppercase;height:56px}
+.br i{width:56px;height:56px;background:#fff;border-radius:9px;display:flex;align-items:center;justify-content:center}
+.br i img{width:44px;height:44px;display:block}
+.br strong{font-weight:900;font-stretch:85%;font-variation-settings:'wdth' 85,'wght' 900;font-size:46px;letter-spacing:.02em;font-family:A}
+.mt{display:flex;align-items:center;gap:18px;font-family:M;font-size:30px;letter-spacing:.04em;text-transform:uppercase;margin-top:22px;height:50px}
+.ch{display:flex;align-items:center;gap:14px;padding:6px 16px;border-radius:9px;font-weight:500;height:50px}
+.eq{display:inline-flex;align-items:flex-end;gap:6px;height:28px;width:45px}.eq i{display:block;width:9px;border-radius:2px;background:var(--eqc)}
+#kz{font-weight:900;font-stretch:78%;font-variation-settings:'wdth' 78,'wght' 900;text-transform:uppercase;line-height:.9;margin-top:26px;text-wrap:balance}
+#cp{position:absolute;left:${D.L}px;width:${D.W}px;font-weight:700;font-stretch:88%;font-variation-settings:'wdth' 88,'wght' 700;font-size:${D.CAP}px;line-height:${D.CAPLH};text-wrap:balance}
+#cp mark{padding:0 8px;border-radius:8px;font-weight:900}
+`;
+async function renderDuo(pg, r, img) {
+  const d = r.duo || {}, rk = String(r.rub || d.rub || r.kicker || '').toLowerCase();
+  const key = d.heikel ? 'heikel' : d.aufmacher ? 'aufmacher' : (DUO_C[rk] ? rk : 'aufmacher');
+  const [bgc, fgc] = DUO_C[key], dark = fgc === '#FFFFFF';
+  const chipBg = dark ? '#FFFFFF' : '#14161A', chipFg = dark ? '#14161A' : '#FFFFFF';
+  const markBg = dark ? '#FFFFFF' : '#14161A', markFg = dark ? '#14161A' : (key === 'aufmacher' ? '#FFFFFF' : bgc);
+  const kz = String(d.kz || r.head || '').replace(/\*/g, '').trim();
+  const chip = d.aufmacher && !d.heikel ? 'Aufmacher' : (r.kicker || 'Newsmag');
+  const metaTxt = [d.aufmacher && !d.heikel && r.kicker ? r.kicker : '', (r.publishers || 0) > 1 ? `${r.publishers} Medien` : ''].filter(Boolean).join(' · ');
+  const deco = DUO_DECO[rk] || '';
+  const hasImg = !!img;
+  const imgTag = hasImg ? `<img src="data:image/jpeg;base64,${img}" style="${d.heikel ? 'filter:contrast(1.08) brightness(.86)' : 'mix-blend-mode:multiply'}">` : '';
+  // Sätze mit Wortzeiten, lange Sätze in Häppchen von höchstens D.MAXL Zeilen (wie Plakat)
+  const sl = []; let t = 0;
+  for (const [ci, c] of r.caps.entries()) { sl.push([timed(c.text, t, t + c.dur, c.wt), ci]); t += c.dur; }
+  const V_END = t, E0 = V_END + (r.gap || 0.35), T_END = E0 + (r.end ? r.end.dur : 0) + 0.6;
+  if (r.end) sl.push([timed(r.end.text, E0, E0 + r.end.dur, r.end.w && r.end.w.map(x => E0 + x)), -1]);
+  const shell = body => `<!doctype html><html><head><meta charset="utf-8"><style>${dcss}</style></head><body style="background:${bgc};color:${fgc};--eqc:${chipFg}">${body}</body></html>`;
+  // Kurzzeile: grösste Schrift ≤ D.KZ, die in die Breite passt (höchstens 3 Zeilen)
+  await pg.setContent(shell(`<div id="tx"><div id="kz" style="font-size:${D.KZ}px">${esc(kz)}</div></div><div id="cp"></div>`));
+  await pg.evaluate(() => document.fonts.ready);
+  const kzFs = await pg.evaluate(([max]) => { const h = document.getElementById('kz'); let s = max; const lh = () => h.offsetHeight / (s * .9);
+    while ((h.scrollWidth > h.parentElement.offsetWidth + 2 || lh() > 3.2) && s > 70) { s -= 4; h.style.fontSize = s + 'px'; } return s; }, [D.KZ]);
+  const cuts = await pg.evaluate(([L, maxl, fsz, lhk]) => {
+    const p = document.getElementById('cp'), lh = fsz * lhk, fits = w => { p.textContent = w.join(' '); return p.offsetHeight <= maxl * lh + 4; };
+    return L.map(w => {
+      if (fits(w)) return [w.length];
+      let n = 0; for (let i = 0; i < w.length;) { let j = i + 1; while (j < w.length && fits(w.slice(i, j + 1))) j++; i = j; n++; }
+      for (; ; n++) {
+        const out = []; let i = 0, ok = true;
+        for (let k = 0; k < n; k++) {
+          let j = k === n - 1 ? w.length : Math.round((k + 1) * w.length / n);
+          for (const dd of [0, 1, -1, 2, -2]) { const q = j + dd; if (k < n - 1 && q > i + 1 && q < w.length && /[,;:–]$/.test(w[q - 1])) { j = q; break; } }
+          if (!fits(w.slice(i, j))) { ok = false; break; } out.push(j - i); i = j;
+        }
+        if (ok) return out;
+        if (n > w.length) return [w.length];
+      }
+    });
+  }, [sl.map(([ws]) => ws.map(x => x.w)), D.MAXL, D.CAP, D.CAPLH]);
+  const ev = [];
+  sl.forEach(([ws, ci], si) => { let i = 0; for (const n of cuts[si]) { const ch = ws.slice(i, i + n); ch.forEach((x, j) => ev.push([x.s, ch, j, ci])); i += n; } });
+  ev.sort((a, b) => a[0] - b[0]);
+  const yImg = p => hasImg ? D.IMG0 + (D.IMG1 - D.IMG0) * p : 0;
+  // ohne Bild: Block weiter oben, Kurzzeile bleibt grösser
+  const y0 = hasImg ? D.Y0 : 520, y1 = hasImg ? D.Y1 : 400;
+  const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
+    const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
+  const page = (p, w, tt) => {
+    const e = ease(p), ih = yImg(e), y = y0 + (y1 - y0) * e, kf = kzFs * (1 + ((hasImg ? D.KZ1 : 0.78) - 1) * e), op = Math.max(0, (p - .85) / .15);
+    return shell(`${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}${d.credit ? `<small style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</small>` : ''}</div>` : ''}
+      <div id="dc" style="color:${fgc}">${esc(deco)}</div>
+      <div id="tx" style="top:${y.toFixed(1)}px">
+        <div class="br"><i><img src="data:image/png;base64,${LOGO}"></i><strong>NEWSMAG</strong>${esc(r.edition || '')}</div>
+        <div class="mt"><span class="ch" style="background:${chipBg};color:${chipFg}"><span class="eq" id="eq">${tt == null ? '' : eqBars(tt)}</span>${esc(chip)}</span>${esc(metaTxt)}</div>
+        <div id="kz" style="font-size:${kf.toFixed(1)}px">${esc(kz)}</div>
+      </div>
+      <div id="cp" style="top:${'CAPTOP'}px;opacity:${op}">${w ? capH(w[0], w[1]) : ''}</div>`);
+  };
+  // Lage des Sprechtexts im Endzustand messen (unter der kleinen Kurzzeile), Platz für das längste Häppchen prüfen
+  await pg.setContent(page(1, null, 0).replace("'CAPTOP'", '0').replace('CAPTOP', '0')); await pg.evaluate(() => document.fonts.ready);
+  const kzBot = await pg.evaluate(() => { const b = document.getElementById('kz').getBoundingClientRect(); return Math.round(b.bottom); });
+  const capTop = kzBot + 40;
+  const P = (p, w, tt) => page(p, w, tt).replace('CAPTOP', String(capTop));
+  const frames = [[0, null, HOLD_P, null]], nG = Math.round(GLIDE * FPS), at = tt => ev.filter(x => x[0] <= tt).at(-1);
+  for (let i = 1; i <= nG; i++) { const e = at(HOLD_P + i / FPS); frames.push([i / nG, e ? [e[1], e[2], e[3]] : null, 1 / FPS, HOLD_P + i / FPS]); }
+  const t1 = HOLD_P + GLIDE + 1 / FPS, first = at(t1);
+  const seq = [...(first ? [[t1, first[1], first[2], first[3]]] : []), ...ev.filter(x => x[0] > t1)];
+  for (let i = 0; i < seq.length; i++) frames.push([1, [seq[i][1], seq[i][2], seq[i][3]], (i + 1 < seq.length ? seq[i + 1][0] : T_END) - seq[i][0], null]);
+  const dir = `${out}/${r.k}`; fs.mkdirSync(dir, { recursive: true });
+  const list = [];
+  const EQ_T0 = +(HOLD_P + GLIDE).toFixed(3);
+  const eqAt = async p => { await pg.setContent(P(p, null, 0)); await pg.evaluate(() => document.fonts.ready);
+    return pg.evaluate(() => { const b = document.getElementById('eq').getBoundingClientRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) }; }); };
+  const eqR = await eqAt(1), eqY0 = (await eqAt(0)).y;
+  fs.mkdirSync(`${dir}/eq`, { recursive: true });
+  const nEq = Math.round(EQ_P * FPS);
+  for (let i = 0; i < nEq; i++) {
+    await pg.setContent(`<!doctype html><html><head><style>${dcss}html,body{width:${eqR.w}px;height:${eqR.h}px;background:transparent}.eq{position:absolute;left:0;top:0}</style></head><body style="background:transparent;--eqc:${chipFg}"><span class="eq">${eqBars(i / FPS)}</span></body></html>`);
+    await pg.screenshot({ path: `${dir}/eq/e${String(i).padStart(2, '0')}.png`, omitBackground: true, clip: { x: 0, y: 0, width: eqR.w, height: eqR.h } });
+  }
+  for (const [i, [p, w, dur, tt]] of frames.entries()) {
+    await pg.setContent(P(p, w, tt)); await pg.evaluate(() => document.fonts.ready);
+    const name = `f${String(i).padStart(3, '0')}.png`; await pg.screenshot({ path: `${dir}/${name}` });
+    list.push(`file '${name}'\nduration ${Math.max(dur, 0.02).toFixed(3)}`);
+  }
+  list.push(list.at(-1).split('\n')[0]);
+  fs.writeFileSync(`${dir}/list.txt`, list.join('\n') + '\n');
+  return { k: r.k, v: +V_END.toFixed(3), e0: +E0.toFixed(3), T: +T_END.toFixed(3), waveY: 0, wave: fgc, nowave: true, eq: { ...eqR, t0: EQ_T0, n: nEq, y0: eqY0, h0: HOLD_P } };
+}
+
 fs.mkdirSync(out, { recursive: true });
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
 const pg = await browser.newPage({ viewport: { width: 1080, height: 1920 } });
 const meta = [];
 for (const r of R.reels) {
+  if (r.duo && !r.list) { meta.push(await renderDuo(pg, r, r.img && fs.existsSync(r.img) ? fs.readFileSync(r.img).toString('base64') : null)); continue; } // Duoton (21.11.2026)
   if (r.bg && fs.existsSync(r.bg)) { meta.push(await renderPoster(pg, r, fs.readFileSync(r.bg).toString('base64'))); continue; } // Plakat (Entwurf C)
   const [bg, fg, acc, cb, cf, wave, dim] = TH[r.theme] || TH.dunkel;
   const fol = false; // Einblendung «Folg @newsmag.ch» weg (19.11.2026, Cy)
