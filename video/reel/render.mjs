@@ -214,6 +214,7 @@ const dcss = `
 #cr{position:absolute;right:26px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
 #dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
 #tx{position:absolute;left:${D.L}px;width:${D.W}px}
+#kn{position:absolute;left:${D.L}px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;line-height:.8;white-space:nowrap;letter-spacing:-.01em}
 .ch{display:inline-flex;align-items:center;gap:16px;padding:8px 20px;border-radius:10px;font-family:M;font-weight:500;font-size:34px;letter-spacing:.06em;text-transform:uppercase;height:60px}
 .eq{display:inline-flex;align-items:flex-end;gap:6px;height:30px;width:45px}.eq i{display:block;width:9px;border-radius:2px;background:var(--eqc)}
 #kz{font-weight:900;font-stretch:76%;font-variation-settings:'wdth' 76,'wght' 900;text-transform:uppercase;line-height:.88;margin-top:28px;text-wrap:balance}
@@ -230,6 +231,11 @@ async function renderDuo(pg, r, img) {
   const chip = r.kicker || d.rub || 'Newsmag';
   const deco = DUO_DECO[rk] || '';
   const hasImg = !!img;
+  // Ohne Bild: Kennzahl gross oben (21.11.2026, Cy: «Müsste beim Bayern-Reel nicht das grosse 1:1 oben drin stehen?») – wörtlich aus Kurzzeile bzw. Titel:
+  // Resultat (3:1) vor Prozent vor Zahl mit mindestens 2 Ziffern; Ordnungszahlen («1. FC») und Jahreszahlen nicht
+  const kennzahl = (() => { if (hasImg) return null; for (const s of [kz, String(r.head || '').replace(/\*/g, '')]) {
+    const m = s.match(/\b\d{1,2}:\d{1,2}\b/) || s.match(/\b\d[\d'’.,]*\s?%/) || [...s.matchAll(/\b\d[\d'’]*(?:[.,]\d+)?\b(?!\.)/g)].map(x => x[0]).find(x => x.replace(/\D/g, '').length >= 2 && !/^(19|20)\d\d$/.test(x));
+    if (m) return String(Array.isArray(m) ? m[0] : m).replace(/\s+/g, ''); } return null; })();
   const imgTag = hasImg ? `<img src="data:image/jpeg;base64,${img}" style="${d.heikel ? 'filter:contrast(1.08) brightness(.86)' : 'mix-blend-mode:multiply'}">` : '';
   const fade = `linear-gradient(to bottom,${bgc}00 0%,${bgc}00 ${D.FD[0] * 100}%,${bgc}D9 ${((D.FD[0] + D.FD[1]) / 2) * 100}%,${bgc} ${D.FD[1] * 100}%)`;
   const sl = []; let t = 0;
@@ -266,13 +272,19 @@ async function renderDuo(pg, r, img) {
   ev.sort((a, b) => a[0] - b[0]);
   // Titelbild: Block unten bündig über D.BOT; ohne Bild etwas höher (optische Mitte)
   const kz1 = hasImg ? D.KZ1 : 0.66;
-  const y0 = hasImg ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760);
+  const y0 = hasImg || kennzahl ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760);
+  // Kennzahl: so gross, wie sie in die Breite (936) und zwischen y 300 und den Titelblock passt
+  let KN = null;
+  if (kennzahl) { await pg.setContent(shell(`<div id="kn" style="font-size:100px">${esc(kennzahl)}</div>`)); await pg.evaluate(() => document.fonts.ready);
+    const w100 = await pg.evaluate(() => document.getElementById('kn').scrollWidth); const fsz = Math.min(560, 936 / w100 * 100, (y0 - 300 - 50) / .8);
+    KN = { fs: fsz, h: fsz * .8 }; }
   let y1 = D.Y1MIN;
   const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
     const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
   const page = (p, w, tt, capTop) => {
     const e = ease(p), ih = D.IMG0 + (D.IMG1 - D.IMG0) * e, y = y0 + (y1 - y0) * e, kf = K.fs * (1 + (kz1 - 1) * e), op = Math.max(0, (p - .85) / .15);
-    return shell(`${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
+    const knS = KN ? Math.min(1, Math.max(.2, (y - 300 - 40) / KN.h)) : 1;
+    return shell(`${KN ? `<div id="kn" style="top:300px;font-size:${(KN.fs * knS).toFixed(1)}px;color:${fgc}">${esc(kennzahl)}</div>` : ''}${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
       ${hasImg && d.credit ? `<div id="cr" style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</div>` : ''}
       <div id="dc" style="color:${fgc}">${esc(deco)}</div>
       <div id="tx" style="top:${y.toFixed(1)}px">
