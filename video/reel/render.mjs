@@ -233,7 +233,7 @@ async function renderDuo(pg, r, img) {
   const hasImg = !!img;
   // Ohne Bild: Kennzahl gross oben (21.11.2026, Cy: «Müsste beim Bayern-Reel nicht das grosse 1:1 oben drin stehen?») – wörtlich aus Kurzzeile bzw. Titel:
   // Resultat (3:1) vor Prozent vor Zahl mit mindestens 2 Ziffern; Ordnungszahlen («1. FC») und Jahreszahlen nicht
-  const kennzahl = (() => { if (hasImg) return null; for (const s of [kz, String(r.head || '').replace(/\*/g, '')]) {
+  const kennzahl = (() => { if (hasImg || d.heikel) return null; /* heikel: keine Riesenzahl («16» beim tödlich verunglückten 16-Jährigen) */ for (const s of [kz, String(r.head || '').replace(/\*/g, '')]) {
     const m = s.match(/\b\d{1,2}:\d{1,2}\b/) || s.match(/\b\d[\d'’.,]*\s?%/) || [...s.matchAll(/\b\d[\d'’]*(?:[.,]\d+)?\b(?!\.)/g)].map(x => x[0]).find(x => x.replace(/\D/g, '').length >= 2 && !/^(19|20)\d\d$/.test(x));
     if (m) return String(Array.isArray(m) ? m[0] : m).replace(/\s+/g, ''); } return null; })();
   const imgTag = hasImg ? `<img src="data:image/jpeg;base64,${img}" style="${d.heikel ? 'filter:contrast(1.08) brightness(.86)' : 'mix-blend-mode:multiply'}">` : '';
