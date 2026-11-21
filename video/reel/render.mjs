@@ -214,7 +214,7 @@ const dcss = `
 #cr{position:absolute;right:26px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
 #dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
 #tx{position:absolute;left:${D.L}px;width:${D.W}px}
-#kn{position:absolute;left:${D.L}px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;line-height:.8;white-space:nowrap;letter-spacing:-.01em}
+#kn{position:absolute;left:50%;transform:translate(-50%,-50%);font-weight:900;font-stretch:66%;font-variation-settings:'wdth' 66,'wght' 900;line-height:.8;white-space:nowrap;letter-spacing:-.02em}
 .ch{display:inline-flex;align-items:center;gap:16px;padding:8px 20px;border-radius:10px;font-family:M;font-weight:500;font-size:34px;letter-spacing:.06em;text-transform:uppercase;height:60px}
 .eq{display:inline-flex;align-items:flex-end;gap:6px;height:30px;width:45px}.eq i{display:block;width:9px;border-radius:2px;background:var(--eqc)}
 #kz{font-weight:900;font-stretch:76%;font-variation-settings:'wdth' 76,'wght' 900;text-transform:uppercase;line-height:.88;margin-top:28px;text-wrap:balance}
@@ -271,20 +271,22 @@ async function renderDuo(pg, r, img) {
   sl.forEach(([ws, ci], si) => { let i = 0; for (const n of cuts[si]) { const ch = ws.slice(i, i + n); ch.forEach((x, j) => ev.push([x.s, ch, j, ci])); i += n; } });
   ev.sort((a, b) => a[0] - b[0]);
   // Titelbild: Block unten bündig über D.BOT; ohne Bild etwas höher (optische Mitte)
-  const kz1 = hasImg ? D.KZ1 : 0.66;
+  const kz1 = hasImg || kennzahl ? D.KZ1 : 0.66;
   const y0 = hasImg || kennzahl ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760);
   // Kennzahl: so gross, wie sie in die Breite (936) und zwischen y 300 und den Titelblock passt
   let KN = null;
   if (kennzahl) { await pg.setContent(shell(`<div id="kn" style="font-size:100px">${esc(kennzahl)}</div>`)); await pg.evaluate(() => document.fonts.ready);
-    const w100 = await pg.evaluate(() => document.getElementById('kn').scrollWidth); const fsz = Math.min(560, 936 / w100 * 100, (y0 - 300 - 50) / .8);
+    const w100 = await pg.evaluate(() => document.getElementById('kn').scrollWidth); const fsz = Math.min(1000, 1040 / w100 * 100, D.IMG0 * .62 / .8);
     KN = { fs: fsz, h: fsz * .8 }; }
+  // Kennzahl als Bildfläche (21.11.2026, Cy: «eher als Bildelement … Negativschrift … in der Farbe des Elements unten»): Fläche im Ton des
+  // Rubrikworts (Schrift 12 % über der Rubrikfarbe), Zahl in der Rubrikfarbe ausgespart, unten Verlauf wie bei einem Foto
+  const tone = `color-mix(in srgb, ${fgc} 12%, ${bgc})`;
   let y1 = D.Y1MIN;
   const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
     const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
   const page = (p, w, tt, capTop) => {
     const e = ease(p), ih = D.IMG0 + (D.IMG1 - D.IMG0) * e, y = y0 + (y1 - y0) * e, kf = K.fs * (1 + (kz1 - 1) * e), op = Math.max(0, (p - .85) / .15);
-    const knS = KN ? Math.min(1, Math.max(.2, (y - 300 - 40) / KN.h)) : 1;
-    return shell(`${KN ? `<div id="kn" style="top:300px;font-size:${(KN.fs * knS).toFixed(1)}px;color:${fgc}">${esc(kennzahl)}</div>` : ''}${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
+    return shell(`${KN ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${tone}"><div id="kn" style="top:${(ih * .5).toFixed(1)}px;font-size:${KN.fs.toFixed(1)}px;color:${bgc}">${esc(kennzahl)}</div><div class="fd" style="background:${fade}"></div></div>` : ''}${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
       ${hasImg && d.credit ? `<div id="cr" style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</div>` : ''}
       <div id="dc" style="color:${fgc}">${esc(deco)}</div>
       <div id="tx" style="top:${y.toFixed(1)}px">
