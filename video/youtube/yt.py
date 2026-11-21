@@ -289,8 +289,8 @@ def build_reels(job, caps, scenes):
                     print(f"Reel {r['k']}: kein Duoton-Bild ({ie})", flush=True)
                 print(f"Reel {r['k']}: Duoton, Kurzzeile «{r['duo'].get('kz') or '-'}», Bild {'ja' if r.get('img') else 'nein'}", flush=True)
                 continue
-            except Exception:
-                pass  # 404 = Duoton aus → Riso bzw. Schrift wie bisher
+            except Exception as de:
+                print(f"Reel {r['k']}: kein Duoton ({de})", flush=True)  # 404 = Duoton aus → Riso bzw. Schrift wie bisher
         try:  # Riso-Hintergrund (Variante C «Plakat», 18.11.2026): Worker erzeugt/prüft das Hochformat; fehlt es → Reel wie bisher
             _, _, raw = http(f"{BASE}/yt-bg?t={TOKEN}&id={r['id']}", timeout=240)
             if raw and len(raw) > 20000:
