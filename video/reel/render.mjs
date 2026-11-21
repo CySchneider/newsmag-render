@@ -209,7 +209,7 @@ const dcss = `
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden}body{font-family:A;position:relative}
 #im{position:absolute;left:0;top:0;width:1080px;overflow:hidden}
-#im img{width:100%;height:100%;object-fit:cover;object-position:50% 25%;display:block}
+#im img{width:100%;height:100%;object-fit:cover;object-position:50% 18%;display:block}
 #im .fd{position:absolute;inset:0}
 #cr{position:absolute;right:26px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
 #dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
