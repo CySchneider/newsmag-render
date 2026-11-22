@@ -475,7 +475,16 @@ def main():
             reels, note = [], ""
             try: reels = build_reels(job, caps, scenes)
             except Exception as e: note = str(e)[:300]; print("Reels FEHLER", e)
-            done(reelsOnly=True, reels=reels, reelNote=note or ("" if reels else "kein Reel hochgeladen"))
+            short = {}
+            if os.environ.get("YT_DRY") == "3" and job.get("short"):  # laufendes Reel auch als YouTube-Short (22.11.2026)
+                f = f"reels/reel-{job['short']['k']}-{job['topics'][job['short']['k']]['id']}.mp4"  # Dateiname mit Themen-ID seit 18.11.2026
+                try:
+                    if not os.path.exists(f): raise RuntimeError("Reel-Datei fehlt")
+                    if os.environ.get("YT_JOB_FILE"): print("lokal, kein Short-Upload", f)
+                    else: short["shortId"] = upload_short(job["short"], f); print("Short hochgeladen", short["shortId"])
+                except Exception as e:
+                    print("Short FEHLER", e); short["shortError"] = str(e)[:300]
+            done(reelsOnly=True, reels=reels, reelNote=note or ("" if reels else "kein Reel hochgeladen"), **short)
             return
         _, _, mp3 = http(job["audio"], timeout=300)
         open("ep.mp3", "wb").write(mp3)
@@ -487,7 +496,7 @@ def main():
             except Exception as e: note = str(e)[:300]; print("Reels FEHLER", e)
             short = {}
             if os.environ.get("YT_DRY") == "3" and job.get("short"):
-                f = f"reels/reel-{job['short']['k']}.mp4"
+                f = f"reels/reel-{job['short']['k']}-{job['topics'][job['short']['k']]['id']}.mp4"  # Dateiname mit Themen-ID seit 18.11.2026
                 try:
                     if not os.path.exists(f): raise RuntimeError("Reel-Datei fehlt")
                     if os.environ.get("YT_JOB_FILE"): print("lokal, kein Short-Upload", f)
