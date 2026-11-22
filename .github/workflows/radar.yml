@@ -1,0 +1,27 @@
+# Regenradar für newsmag.ch (seit 22.11.2026): vom Worker alle 15 min mit Einmal-Token gestartet (radarCron),
+# holt die letzten Radarbilder von MeteoSchweiz (Open Data), färbt sie ein und schickt sie an /radar-push.
+name: Regenradar
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Einmal-Token vom Worker
+        required: true
+concurrency:
+  group: radar
+  cancel-in-progress: false
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: radar/requirements.txt
+      - run: pip install -r radar/requirements.txt
+      - run: python3 radar/radar.py
+        env:
+          JOB: ${{ inputs.job }}
