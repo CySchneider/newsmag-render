@@ -203,7 +203,9 @@ const DUO_C = { // [Fläche, Schrift] – Farbstand 21.11.2026 (docs/website.md 
 const DUO_DECO = { international: 'International', schweiz: 'Schweiz', wirtschaft: 'Wirtschaft', sport: 'Sport', kultur: 'Kultur', medien: 'Medien',
   entertainment: 'Entertainment', digital: 'Digital', technik: 'Technik', wissen: 'Wissen', ausland: 'International' };
 // IMG0/IMG1 = Bildhöhe Titel/Sprechen, FD = Verlauf (Anteil der Bildhöhe: ab .. bis deckend), KZ = grösste Kurzzeile, CAP = Sprechtext
-const D = { L: 72, W: 828, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 84, CAPLH: 1.12, MAXL: 4, BOT: 1450, Y1MIN: 470, Y1MAX: 700, HOLD: 2.6, GLIDE: 0.6 };
+// Ränder (22.11.2026, Cy): Handys mit 19,5:9 schneiden im Vollbild links und rechts je ~100 px ab → Text beginnt auf der Linie des
+// Profilbilds unten links (x 136) und endet vor der Knopfspalte (x 876); Sprechtext kleiner (84 → 68 px)
+const D = { L: 136, W: 740, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 68, CAPLH: 1.14, MAXL: 4, BOT: 1450, Y1MIN: 470, Y1MAX: 700, HOLD: 2.6, GLIDE: 0.6 };
 const dcss = `
 @font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
@@ -211,7 +213,7 @@ const dcss = `
 #im{position:absolute;left:0;top:0;width:1080px;overflow:hidden}
 #im img{width:100%;height:100%;object-fit:cover;object-position:50% 18%;display:block}
 #im .fd{position:absolute;inset:0}
-#cr{position:absolute;right:26px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
+#cr{position:absolute;right:118px;top:330px;writing-mode:vertical-rl;transform:rotate(180deg);font-family:M;font-size:18px;letter-spacing:.03em;opacity:.55;white-space:nowrap}
 #dc{position:absolute;left:44px;bottom:-44px;font-weight:900;font-stretch:70%;font-variation-settings:'wdth' 70,'wght' 900;text-transform:uppercase;font-size:330px;line-height:.8;opacity:.12;white-space:nowrap}
 #tx{position:absolute;left:${D.L}px;width:${D.W}px}
 #kn{position:absolute;left:50%;transform:translate(-50%,-50%);font-weight:900;font-stretch:66%;font-variation-settings:'wdth' 66,'wght' 900;line-height:.8;white-space:nowrap;letter-spacing:-.02em}
