@@ -204,8 +204,8 @@ const DUO_DECO = { international: 'International', schweiz: 'Schweiz', wirtschaf
   entertainment: 'Entertainment', digital: 'Digital', technik: 'Technik', wissen: 'Wissen', ausland: 'International' };
 // IMG0/IMG1 = Bildhöhe Titel/Sprechen, FD = Verlauf (Anteil der Bildhöhe: ab .. bis deckend), KZ = grösste Kurzzeile, CAP = Sprechtext
 // Ränder (22.11.2026, Cy): Handys mit 19,5:9 schneiden im Vollbild links und rechts je ~100 px ab → Text beginnt auf der Linie des
-// Profilbilds unten links (x 136) und endet vor der Knopfspalte (x 876); Sprechtext kleiner (84 → 68 px)
-const D = { L: 136, W: 740, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, CAP: 68, CAPLH: 1.14, MAXL: 4, BOT: 1450, Y1MIN: 470, Y1MAX: 700, HOLD: 2.6, GLIDE: 0.6 };
+// Profilbilds unten links (x 136) und endet vor der Knopfspalte (x 876); Sprechtext kleiner (84 → 68 → 60 px); Titel bleibt in der Sprechphase mind. 1,6× so gross wie der Sprechtext
+const D = { L: 136, W: 740, IMG0: 1240, IMG1: 820, FD: [0.42, 0.9], KZ: 210, KZMIN: 96, KZ1: 0.56, KZCAP: 1.6, CAP: 60, CAPLH: 1.14, MAXL: 4, BOT: 1450, Y1MIN: 470, Y1MAX: 700, HOLD: 2.6, GLIDE: 0.6 };
 const dcss = `
 @font-face{font-family:M;src:url(data:font/woff2;base64,${mono}) format('woff2')}
 @font-face{font-family:A;src:url(data:font/woff2;base64,${font}) format('woff2');font-weight:100 900;font-stretch:62% 125%}
@@ -274,6 +274,8 @@ async function renderDuo(pg, r, img) {
   ev.sort((a, b) => a[0] - b[0]);
   // Titelbild: Block unten bündig über D.BOT; ohne Bild etwas höher (optische Mitte)
   const kz1 = hasImg || kennzahl ? D.KZ1 : 0.66;
+  // Titel immer klar grösser als der Sprechtext (22.11.2026, Cy: «Titel sollte immer grösser sein, als der Text darunter»)
+  const kfEnd = Math.min(K.fs, Math.max(K.fs * kz1, D.CAP * D.KZCAP));
   const y0 = hasImg || kennzahl ? D.BOT - K.bh : Math.min(D.BOT - K.bh, 760);
   // Kennzahl: so gross, wie sie in die Breite (936) und zwischen y 300 und den Titelblock passt
   let KN = null;
@@ -287,7 +289,7 @@ async function renderDuo(pg, r, img) {
   const capH = (ws, j) => ws.map((x, q) => { const w = esc(x.w), dig = /\d/.test(x.w) && !/^\d{1,2}\.$/.test(x.w); // Zahlen markieren, Ordnungszahlen («1. FC») nicht
     const inner = dig ? `<mark style="background:${markBg};color:${markFg}">${w}</mark>` : w; return `<span style="opacity:${q <= j ? 1 : .32}">${inner}</span>`; }).join(' ');
   const page = (p, w, tt, capTop) => {
-    const e = ease(p), ih = D.IMG0 + (D.IMG1 - D.IMG0) * e, y = y0 + (y1 - y0) * e, kf = K.fs * (1 + (kz1 - 1) * e), op = Math.max(0, (p - .85) / .15);
+    const e = ease(p), ih = D.IMG0 + (D.IMG1 - D.IMG0) * e, y = y0 + (y1 - y0) * e, kf = K.fs + (kfEnd - K.fs) * e, op = Math.max(0, (p - .85) / .15);
     return shell(`${KN ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${tone}"><div id="kn" style="top:${(ih * .5).toFixed(1)}px;font-size:${KN.fs.toFixed(1)}px;color:${bgc}">${esc(kennzahl)}</div><div class="fd" style="background:${fade}"></div></div>` : ''}${hasImg ? `<div id="im" style="height:${ih.toFixed(1)}px;background:${bgc}">${imgTag}<div class="fd" style="background:${fade}"></div></div>` : ''}
       ${hasImg && d.credit ? `<div id="cr" style="color:${d.heikel ? '#fff' : '#14161A'}">${esc(d.credit)}</div>` : ''}
       <div id="dc" style="color:${fgc}">${esc(deco)}</div>
