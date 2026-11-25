@@ -307,6 +307,8 @@ def hl_table(sid):
         tm = x["team"]
         tid, name = HL_IDS.get(tm["id"]) or next(([v[1], v[0]] for v in TEAMS.values() if toks(v[0]) & toks(tm["name"])), [tm["id"], tm["name"]])
         w, l, ow, ol = (x.get("wins") or 0), (x.get("loses") or 0), (x.get("winsOvertime") or 0), (x.get("losesOvertime") or 0)
+        # Highlightly zählt uneinheitlich: NL wins/loses inkl. n.V./n.P. (w + l = Spiele), MyHockey League ohne (w + l + ow + ol = Spiele)
+        if w + l + ow + ol == (x.get("gamesPlayed") or 0) and w + l != (x.get("gamesPlayed") or 0): w, l = w + ow, l + ol
         gf, ga, r = x.get("scoredGoals") or 0, x.get("receivedGoals") or 0, x.get("position") or 0
         out.append({"r": r, "id": tid, "n": name, "sp": x.get("gamesPlayed") or 0, "w": w - ow, "ow": ow, "ol": ol, "l": l - ol,
                     "gf": gf, "ga": ga, "gd": gf - ga, "pts": 3 * (w - ow) + 2 * ow + ol, "f": "",
