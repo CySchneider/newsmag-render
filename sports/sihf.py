@@ -221,6 +221,99 @@ def fix_rounds(ms):
             m["r"] = min(reg, key=lambda x: (abs(ts(x) - ts(m)), -ts(x)))["r"]
 
 
+# ---- Ausweichquelle Highlightly (seit 25.11.2026, Cy): data.sihf.ch sperrt seit 24.11. mit 403. Spiele und IDs kommen weiter aus der
+# SIHF-Tagesliste (www.sihf.ch geht noch), Resultat/Drittel/Status und Tabelle von Highlightly (Gratisstufe, 100 Abrufe/Tag,
+# keine Torschützen/Strafen). Nur wenn die SIHF-Details fehlen. Schlüssel: Secret HIGHLIGHTLY_KEY.
+import os, unicodedata
+HL_KEY = os.environ.get("HIGHLIGHTLY_KEY", "")
+HL_LG = {1: 44185, 2: 45036, 100: 90139}  # SIHF-Liga → Highlightly-Liga
+hl_calls, hl_rem, HL_DAYS, HL_IDS = 0, None, {}, {}  # HL_IDS: Highlightly-Team-ID → [unsere ID, Name] (aus zugeordneten Spielen)
+
+
+def hl_get(path):
+    global hl_calls, hl_rem
+    if not HL_KEY or (hl_rem is not None and hl_rem < 3): return None
+    try:
+        hl_calls += 1
+        with urllib.request.urlopen(urllib.request.Request("https://hockey.highlightly.net" + path, headers={"x-rapidapi-key": HL_KEY, "User-Agent": UA}), timeout=30) as r:
+            rem = r.headers.get("x-ratelimit-requests-remaining")
+            if rem and rem.isdigit(): hl_rem = int(rem)
+            return json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        print("Highlightly-Abruf gescheitert", path, e, file=sys.stderr)
+        if isinstance(e, urllib.error.HTTPError) and e.code in (401, 403, 429): hl_rem = 0
+        return None
+
+
+def hl_day(day):
+    if day not in HL_DAYS:
+        d = hl_get(f"/matches?countryCode=CH&date={day}&timezone=Europe/Zurich")
+        HL_DAYS[day] = (d or {}).get("data") if d else None
+    return HL_DAYS[day]
+
+
+def toks(*names):
+    out = set()
+    for n in names:
+        n = unicodedata.normalize("NFKD", str(n or "")).encode("ascii", "ignore").decode().lower()
+        out |= {w for w in re.split(r"[^a-z0-9]+", n) if len(w) >= 3 and w not in {"ehc", "club", "hockey"}}
+    if "zurich" in out: out.add("zsc")
+    if "zsc" in out: out.add("zurich")
+    return out
+
+
+def hl_find(day, sid, hn, an):
+    """Highlightly-Spiel zu einem SIHF-Spiel (gleicher Tag, gleiche Liga, beide Teams per Namensteilen)."""
+    for g in hl_day(day) or []:
+        if (g.get("league") or {}).get("id") != HL_LG.get(sid): continue
+        if toks(*hn) & toks(g["homeTeam"]["name"]) and toks(*an) & toks(g["awayTeam"]["name"]): return g
+    return None
+
+
+def pair(x):
+    m = re.match(r"\s*(\d+)\s*-\s*(\d+)", x or "")
+    return [int(m.group(1)), int(m.group(2))] if m else None
+
+
+HL_ST = {"finished": "FT", "finished after overtime": "AOT", "finished after penalties": "AP", "not started": "NS", "first period": "P1",
+         "second period": "P2", "third period": "P3", "break time": "BT", "break": "BT", "overtime": "OT", "penalties": "PT",
+         "postponed": "PST", "cancelled": "CANC", "canceled": "CANC", "interrupted": "INTR", "abandoned": "ABD"}
+
+
+def from_hl(g, mid, t, r, h, a):
+    sc = (g.get("state") or {}).get("score") or {}
+    desc = ((g.get("state") or {}).get("description") or "").strip().lower()
+    st = HL_ST.get(desc)
+    if not st:
+        print("Highlightly: unbekannter Status", desc, file=sys.stderr)
+        st = "P1" if pair(sc.get("current")) else "NS"
+    if st in DONE and st == "FT" and pair(sc.get("penalties")): st = "AP"
+    elif st == "FT" and pair(sc.get("overTime")) and sum(pair(sc.get("overTime"))): st = "AOT"
+    HL_IDS[g["homeTeam"]["id"]], HL_IDS[g["awayTeam"]["id"]] = h, a
+    fmt = lambda x: "-".join(map(str, pair(x))) if pair(x) else None
+    per = [fmt(sc.get(k)) for k in ("firstPeriod", "secondPeriod", "thirdPeriod", "overTime", "penalties")]
+    m = {"id": mid, "t": t, "st": st, "el": None, "r": r, "h": h, "a": a, "g": pair(sc.get("current")) if st != "NS" else None, "p": None, "per": per}
+    # endgültig markieren, damit spätere Läufe das Spiel nicht nochmals anfragen (spart Abrufe; Torschützen gibt es hier nicht)
+    info = {"final": True, "ht": None, "v": "", "ref": "", "ev": [], "sb": [], "lu": None, "zu": None, "src": "hl"} if st in DONE else None
+    return m, info
+
+
+def hl_table(sid):
+    d = hl_get(f"/standings?leagueId={HL_LG[sid]}&season={dt.date.today().year if dt.date.today().month >= 8 else dt.date.today().year - 1}")
+    rows = [x for gr in (d or {}).get("groups") or [] for x in gr.get("standings") or []]
+    if not rows: return None
+    out = []
+    for x in sorted(rows, key=lambda x: x.get("position") or 99):
+        tm = x["team"]
+        tid, name = HL_IDS.get(tm["id"]) or next(([v[1], v[0]] for v in TEAMS.values() if toks(v[0]) & toks(tm["name"])), [tm["id"], tm["name"]])
+        w, l, ow, ol = (x.get("wins") or 0), (x.get("loses") or 0), (x.get("winsOvertime") or 0), (x.get("losesOvertime") or 0)
+        gf, ga, r = x.get("scoredGoals") or 0, x.get("receivedGoals") or 0, x.get("position") or 0
+        out.append({"r": r, "id": tid, "n": name, "sp": x.get("gamesPlayed") or 0, "w": w - ow, "ow": ow, "ol": ol, "l": l - ol,
+                    "gf": gf, "ga": ga, "gd": gf - ga, "pts": 3 * (w - ow) + 2 * ow + ol, "f": "",
+                    "d": next((z for lim, z in ZONES.get(sid, []) if r <= lim), ""), "grp": ""})
+    return out
+
+
 def run(job, leagues, out, frm, to):
     """Voller Abruf: Tageslisten im Zeitfenster, Details nur wo nötig (laufend, beendet ohne endgültige Details, NL/SwL ohne Runde)."""
     season = int(job["season"]) + 1  # SIHF zählt 2026/27 als 2027
@@ -230,7 +323,7 @@ def run(job, leagues, out, frm, to):
     now = time.time()
     by = {sid: [] for sid in sids}
     d0, d1 = dt.date.fromisoformat(frm), dt.date.fromisoformat(to)
-    want, seen = [], set()
+    want, seen, newfin = [], set(), set()
     day = d0
     while day <= d1:
         lst = day_list(day.isoformat())
@@ -259,6 +352,14 @@ def run(job, leagues, out, frm, to):
         d = detail(x["id"])
         if not d or not d.get("gameId"):
             k = known.get(x["id"])
+            g = hl_find(t[:10], x["lg"], [x["h"][1], team(*x["h"])[1]], [x["a"][1], team(*x["a"])[1]]) if HL_KEY else None
+            if g:
+                wk = str(g.get("week") or "")
+                m, info = from_hl(g, x["id"], t, (k or {}).get("r") or (int(wk) if wk.isdigit() and x["lg"] in RND else None), team(*x["h"]), team(*x["a"]))
+                by[x["lg"]].append(m)
+                if info: out["ev"][str(m["id"])] = info
+                if m["st"] in DONE and (k or {}).get("st") not in DONE: newfin.add(x["lg"])
+                continue
             by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")} if k else
                                {"id": x["id"], "t": t, "st": "NS", "el": None, "r": None, "h": team(*x["h"]), "a": team(*x["a"]), "g": None, "p": None, "per": [None] * 5})
             continue
@@ -271,6 +372,9 @@ def run(job, leagues, out, frm, to):
         if sid in by: fix_rounds(by[sid])
     for sid, lg in sids.items():
         table = standing(sid, season) if lg.get("table") else None
+        # Ausweichquelle: Tabelle nur, wenn in diesem Lauf ein Spiel fertig wurde oder noch keine da ist (Abrufe sparen);
+        # sonst None → der Worker behält die gespeicherte Tabelle
+        if table is None and lg.get("table") and HL_KEY and (sid in newfin or not lg.get("tb")): table = hl_table(sid)
         out["leagues"].append({"id": lg["id"], "sport": "hockey", "src": "sihf", "matches": sorted(by[sid], key=lambda m: m["t"] or ""), "table": table})
 
 
@@ -278,9 +382,19 @@ def live(job, leagues, out):
     """Live-Abruf: Details der laufenden Spiele (IDs vom Worker)."""
     for lg in leagues:
         ms = []
+        known = next((l2.get("hk") or {} for l2 in job.get("leagues") or [] if l2.get("id") == lg["id"]), {})
         for gid in lg.get("ids") or []:
             d = detail(gid)
-            if not d or not d.get("gameId"): continue
+            if not d or not d.get("gameId"):
+                # Ausweichquelle nur jeden zweiten Live-Lauf (alle 10 statt 5 min, Tageslimit 100 Abrufe)
+                k = known.get(str(gid)) or known.get(gid)
+                if not k or not HL_KEY or (dt.datetime.now().minute // 5) % 2 or (hl_rem is not None and hl_rem < 30): continue
+                g = hl_find(dt.datetime.fromisoformat(k["t"]).astimezone(ZH).date().isoformat(), lg["sid"], [k["h"][1]], [k["a"][1]])
+                if not g: continue
+                m, info = from_hl(g, k["id"], k["t"], None, k["h"], k["a"])
+                m.pop("r", None); ms.append(m)
+                if info: out["ev"][str(m["id"])] = info
+                continue
             m, info = from_detail(d, lg["sid"])
             m.pop("r", None)  # Runde bleibt die gespeicherte (Nachtragsspiele sind dort schon zugeordnet, siehe fix_rounds)
             ms.append(m)

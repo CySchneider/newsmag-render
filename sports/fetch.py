@@ -176,6 +176,6 @@ for sport in ("football", "hockey"):
             out["sub"][sport] = {"plan": (st.get("subscription") or {}).get("plan"), "end": (st.get("subscription") or {}).get("end"),
                                  "used": (st.get("requests") or {}).get("current"), "limit": (st.get("requests") or {}).get("limit_day")}
 out["at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-out["calls"], out["calls_sihf"] = calls, sihf.calls
+out["calls"], out["calls_sihf"], out["calls_hl"] = calls, sihf.calls, sihf.hl_calls
 res = http_json(f"{HOST}/sports-push?t={JOB}", json.dumps(out).encode())
 print("gesendet:", res, "Abrufe:", calls, "Ligen:", len(out["leagues"]), "Spiele:", sum(len(l["matches"]) for l in out["leagues"]), "Details:", len(out["ev"]))
