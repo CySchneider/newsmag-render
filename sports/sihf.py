@@ -6,6 +6,7 @@
 # - Tabelle: data.sihf.ch …/cache300?alias=standing (JSON, gleiche Zahlen wie API-Hockey)
 # Ausgabe im gleichen Format wie hmatch()/hockey() in fetch.py, Teams mit den bisherigen API-Hockey-IDs und -Namen
 # (Logos, Kürzel, Spielerkennung bleiben gleich). Liga-IDs SIHF: 1 National League, 2 Swiss League, 100 MyHockey League.
+import urllib.parse, urllib.error
 import datetime as dt, json, re, sys, time, urllib.request
 from zoneinfo import ZoneInfo
 
@@ -33,8 +34,13 @@ DONE = {"FT", "AOT", "AP"}
 RND = {1, 2}
 
 
+BLOCKED = set()  # Hosts, die in diesem Lauf mit 403 geantwortet haben → nicht weiter anfragen (SIHF sperrt seit 24.11.2026)
+
+
 def get(url, js=True):
     global calls
+    host = urllib.parse.urlparse(url).netloc
+    if host in BLOCKED: return None
     for attempt in range(3):
         calls += 1
         try:
@@ -43,6 +49,11 @@ def get(url, js=True):
             if not js: return raw
             if raw.lstrip().startswith("/**/"): raw = raw[raw.index("(") + 1:raw.rindex(")")]
             return json.loads(raw)
+        except urllib.error.HTTPError as e:
+            print("SIHF-Abruf gescheitert", url[:120], e, file=sys.stderr)
+            if e.code == 403:
+                BLOCKED.add(host); print("SIHF sperrt", host, "– keine weiteren Abrufe in diesem Lauf", file=sys.stderr); return None
+            time.sleep(3 + attempt * 3)
         except Exception as e:
             print("SIHF-Abruf gescheitert", url[:120], e, file=sys.stderr); time.sleep(3 + attempt * 3)
     return None
