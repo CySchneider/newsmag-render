@@ -16,5 +16,6 @@ jobs:
       - run: python3 sports/probe.py
         env:
           API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
+          HIGHLIGHTLY_KEY: ${{ secrets.HIGHLIGHTLY_KEY }}
           PROBE: ${{ inputs.probe }}
           LIST: ${{ inputs.list }}

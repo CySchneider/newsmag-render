@@ -1,13 +1,15 @@
 # Testabrufe API-Sports aus GitHub Actions (Cloudflare-Adressen werden gedrosselt). Schlüssel nur aus dem Secret, nie ausgeben.
 import json, os, sys, time, urllib.request
-BASE = {"football": "https://v3.football.api-sports.io", "hockey": "https://v1.hockey.api-sports.io"}
-key = os.environ["API_SPORTS_KEY"]
+BASE = {"football": "https://v3.football.api-sports.io", "hockey": "https://v1.hockey.api-sports.io", "hl": "https://hockey.highlightly.net"}
+key = os.environ.get("API_SPORTS_KEY", "")
+hl_key = os.environ.get("HIGHLIGHTLY_KEY", "")
 for i, q in enumerate(json.loads(os.environ["PROBE"])):
     if i: time.sleep(7)
-    req = urllib.request.Request(BASE[q["api"]] + q["path"], headers={"x-apisports-key": key})
+    req = urllib.request.Request(BASE[q["api"]] + q["path"], headers={"x-rapidapi-key": hl_key} if q["api"] == "hl" else {"x-apisports-key": key})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             body = r.read().decode("utf-8", "replace"); rem = r.headers.get("x-ratelimit-requests-remaining")
+            if q["api"] == "hl": print("::notice title=hl raw::" + body[: q.get("max", 4000)].replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
     except Exception as e:
         body, rem = str(e), None
     print(f"===== {q['api']} {q['path']} (übrig heute: {rem})")
