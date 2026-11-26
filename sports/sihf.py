@@ -296,7 +296,7 @@ def pair(x):
 
 
 HL_ST = {"finished": "FT", "finished after overtime": "AOT", "finished after penalties": "AP", "not started": "NS", "first period": "P1",
-         "second period": "P2", "third period": "P3", "break time": "BT", "break": "BT", "overtime": "OT", "penalties": "PT",
+         "second period": "P2", "third period": "P3", "1st period": "P1", "2nd period": "P2", "3rd period": "P3", "break time": "BT", "break": "BT", "overtime": "OT", "penalties": "PT",
          "postponed": "PST", "cancelled": "CANC", "canceled": "CANC", "interrupted": "INTR", "abandoned": "ABD"}
 
 
@@ -304,9 +304,18 @@ def from_hl(g, mid, t, r, h, a):
     sc = (g.get("state") or {}).get("score") or {}
     desc = ((g.get("state") or {}).get("description") or "").strip().lower()
     st = HL_ST.get(desc)
-    if not st:
-        print("Highlightly: unbekannter Status", desc, file=sys.stderr)
-        st = "P1" if pair(sc.get("current")) else "NS"
+    if not st:  # 26.11.2026: im 3. Drittel stand «1. Dr.» – unbekannte Schreibweise fiel auf P1 zurück
+        n = re.search(r"\b(1|2|3|first|second|third)(st|nd|rd|th)?\s*(period|drittel)", desc)
+        if n: st = "P" + str({"first": 1, "second": 2, "third": 3}.get(n.group(1), n.group(1)))
+        elif re.search(r"overtime|extra", desc): st = "OT"
+        elif re.search(r"penalt|shoot", desc): st = "PT"
+        elif re.search(r"break|interm|pause", desc): st = "BT"
+        elif re.search(r"finish|ended|final", desc): st = "FT"
+        elif pair(sc.get("current")):  # sonst aus den Dritteln: Drittel nach dem letzten mit Stand
+            done = sum(1 for k in ("firstPeriod", "secondPeriod", "thirdPeriod") if pair(sc.get(k)))
+            st = "P" + str(max(1, min(3, done)))
+        else: st = "NS"
+        print("Highlightly: unbekannter Status", repr(desc), "→", st, file=sys.stderr)
     if st in DONE and st == "FT" and pair(sc.get("penalties")): st = "AP"
     elif st == "FT" and pair(sc.get("overTime")) and sum(pair(sc.get("overTime"))): st = "AOT"
     HL_IDS[g["homeTeam"]["id"]], HL_IDS[g["awayTeam"]["id"]] = h, a
