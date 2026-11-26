@@ -311,8 +311,12 @@ def hl_table(sid):
         if w + l + ow + ol == (x.get("gamesPlayed") or 0) and w + l != (x.get("gamesPlayed") or 0): w, l = w + ow, l + ol
         gf, ga, r = x.get("scoredGoals") or 0, x.get("receivedGoals") or 0, x.get("position") or 0
         out.append({"r": r, "id": tid, "n": name, "sp": x.get("gamesPlayed") or 0, "w": w - ow, "ow": ow, "ol": ol, "l": l - ol,
-                    "gf": gf, "ga": ga, "gd": gf - ga, "pts": 3 * (w - ow) + 2 * ow + ol, "f": "",
-                    "d": next((z for lim, z in ZONES.get(sid, []) if r <= lim), ""), "grp": ""})
+                    "gf": gf, "ga": ga, "gd": gf - ga, "pts": 3 * (w - ow) + 2 * ow + ol, "f": "", "grp": ""})
+    # Highlightlys «position» stimmt nicht (26.11.2026: NL Biel 24 Pkt vor Davos 27, Fribourg 30 vor Lausanne 32) → selbst sortieren:
+    # Punkte, weniger Spiele, Tordifferenz, Tore; Rang und Zone danach neu
+    out.sort(key=lambda t: (-t["pts"], t["sp"], -t["gd"], -t["gf"]))
+    for i, t in enumerate(out, 1):
+        t["r"] = i; t["d"] = next((z for lim, z in ZONES.get(sid, []) if i <= lim), "")
     return out
 
 
