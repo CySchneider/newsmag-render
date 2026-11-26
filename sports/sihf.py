@@ -32,6 +32,25 @@ ZONES = {1: [(6, "Play Offs"), (10, "Play-in")], 2: [(8, "Play Offs")], 100: [(1
 DONE = {"FT", "AOT", "AP"}
 # Ligen mit offizieller Runde aus gameDetail: National League, Swiss League (seit 11.11.2026, Cy; vorher nur NL)
 RND = {1, 2}
+# Offizielle Runde (26.11.2026, Cy: «wie kann die Runde 25 eine Mannschaft mehrfach drin haben?»): Highlightlys «week» ist keine Runde
+# (27. NL-Runde hatte 11 Spiele, Teams doppelt) und wird nicht mehr genommen. Runden aus gameDetail tragen "ro": 1. Gespeicherte Runden
+# ohne Marker gelten als offiziell, wenn das Spiel vor RO_LEGACY liegt (vor der Sperre am 24.11. mit +10 Tagen Fenster von der SIHF
+# geholt); spätere stammen aus «week» → verworfen. Spiele ohne offizielle Runde zeigt der Worker als Spieltag (roundKey «d:<Tag>»).
+# Eigene Rundennummern verworfen: offizielle Runden überlappen (25. und 26. Runde beide Fr/So), Nachtragsspiele sind am Spielplan nicht erkennbar.
+RO_LEGACY = "2026-12-04"
+
+
+def off_r(k):
+    """Offizielle Runde eines gespeicherten Spiels oder None."""
+    if not k or not k.get("r"): return None
+    return k["r"] if k.get("ro") or (k.get("t") or "")[:10] < RO_LEGACY else None
+
+
+def keep(k):
+    """Gespeichertes Spiel zurückgeben, Runde nur, wenn offiziell."""
+    m = {a: b for a, b in k.items() if a not in ("fin", "sid", "r", "ro")}
+    r = off_r(k)
+    return {**m, "r": r, **({"ro": 1} if r else {})}
 
 
 BLOCKED = set()  # Hosts, die in diesem Lauf mit 403 geantwortet haben → nicht weiter anfragen (SIHF sperrt seit 24.11.2026)
@@ -143,6 +162,7 @@ def from_detail(d, sid):
     m = {"id": int(d["gameId"]), "t": dt.datetime.fromisoformat(t).isoformat() if t else None, "st": st, "el": None,
          "r": d["round"] + 1 if sid in RND and isinstance(d.get("round"), int) else None, "h": team(hid, (det.get("homeTeam") or {}).get("name")),
          "a": team((det.get("awayTeam") or {}).get("id"), (det.get("awayTeam") or {}).get("name")), "g": g, "p": None, "per": per}
+    if m["r"]: m["ro"] = 1
     if st == "NS": return m, None
     # Ereignisse: Tor [Minute, None, h/a, "g", Torschütze, Assists, Zusatz, "mm:ss"], Strafe [Minute, None, h/a, "hp", Spieler, "2' Grund", None, "mm:ss"]
     who = lambda lic: pname((pl.get(lic) or {}).get("fullName") or "") if lic else ""
@@ -293,6 +313,7 @@ def from_hl(g, mid, t, r, h, a):
     fmt = lambda x: "-".join(map(str, pair(x))) if pair(x) else None
     per = [fmt(sc.get(k)) for k in ("firstPeriod", "secondPeriod", "thirdPeriod", "overTime", "penalties")]
     m = {"id": mid, "t": t, "st": st, "el": None, "r": r, "h": h, "a": a, "g": pair(sc.get("current")) if st != "NS" else None, "p": None, "per": per}
+    if r: m["ro"] = 1  # r kommt nur noch als offizielle (gespeicherte) Runde herein
     # endgültig markieren, damit spätere Läufe das Spiel nicht nochmals anfragen (spart Abrufe; Torschützen gibt es hier nicht)
     info = {"final": True, "ht": None, "v": "", "ref": "", "ev": [], "sb": [], "lu": None, "zu": None, "src": "hl"} if st in DONE else None
     return m, info
@@ -335,7 +356,7 @@ def run(job, leagues, out, frm, to):
         lst = day_list(day.isoformat())
         if lst is None:  # Tag nicht abrufbar → gespeicherte Spiele dieses Tages behalten
             for gid, k in known.items():
-                if k.get("t", "")[:10] == day.isoformat() and k.get("sid") in by: by[k["sid"]].append({x: y for x, y in k.items() if x not in ("fin", "sid")}); seen.add(gid)
+                if k.get("t", "")[:10] == day.isoformat() and k.get("sid") in by: by[k["sid"]].append(keep(k)); seen.add(gid)
         for x in lst or []:
             if x["lg"] not in sids or x["id"] in seen: continue
             seen.add(x["id"])
@@ -344,29 +365,33 @@ def run(job, leagues, out, frm, to):
             t = iso(day.isoformat(), x["tm"]) if hm else (k or {}).get("t") or iso(day.isoformat(), "19:45")
             begun = dt.datetime.fromisoformat(t).timestamp() < now + 10 * 60
             if k and k.get("st") in DONE and k.get("fin"):
-                by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")}); continue
-            if begun or x["live"] or not hm or (x["lg"] in RND and not (k or {}).get("r")):
+                by[x["lg"]].append(keep(k)); continue
+            if begun or x["live"] or not hm or (x["lg"] in RND and not off_r(k)):
                 want.append((x, t)); continue
-            by[x["lg"]].append({"id": x["id"], "t": t, "st": "NS", "el": None, "r": (k or {}).get("r"), "h": team(*x["h"]), "a": team(*x["a"]),
-                                "g": None, "p": None, "per": [None] * 5})
+            by[x["lg"]].append({"id": x["id"], "t": t, "st": "NS", "el": None, "r": off_r(k), "h": team(*x["h"]), "a": team(*x["a"]),
+                                "g": None, "p": None, "per": [None] * 5, **({"ro": 1} if off_r(k) else {})})
         day += dt.timedelta(days=1)
     cap = 400 if (d1 - d0).days > 30 else 150  # Archiv-Füllung (Fenster bis 60 Tage zurück): ca. 250 Spiele
     for x, t in want[cap:]:  # über der Grenze: gespeicherten Stand behalten statt das Spiel zu verlieren
         k = known.get(x["id"])
-        if k: by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")})
+        if k: by[x["lg"]].append(keep(k))
     for x, t in want[:cap]:
         d = detail(x["id"])
         if not d or not d.get("gameId"):
             k = known.get(x["id"])
+            nb = not x["live"] and hm and dt.datetime.fromisoformat(t).timestamp() > now + 10 * 60  # nur wegen fehlender Runde angefragt
+            if nb:  # Highlightly liefert keine Runde → keinen Abruf verbrauchen, Spiel ohne Runde (Spieltag)
+                by[x["lg"]].append({**(keep(k) if k else {}), "id": x["id"], "t": t, "st": "NS", "el": None, "r": off_r(k), "h": team(*x["h"]), "a": team(*x["a"]),
+                                    "g": None, "p": None, "per": [None] * 5, **({"ro": 1} if off_r(k) else {})})
+                continue
             g = hl_find(t[:10], x["lg"], [x["h"][1], team(*x["h"])[1]], [x["a"][1], team(*x["a"])[1]]) if HL_KEY else None
             if g:
-                wk = str(g.get("week") or "")
-                m, info = from_hl(g, x["id"], t, (k or {}).get("r") or (int(wk) if wk.isdigit() and x["lg"] in RND else None), team(*x["h"]), team(*x["a"]))
+                m, info = from_hl(g, x["id"], t, off_r(k) if x["lg"] in RND else None, team(*x["h"]), team(*x["a"]))
                 by[x["lg"]].append(m)
                 if info: out["ev"][str(m["id"])] = info
                 if m["st"] in DONE and (k or {}).get("st") not in DONE: newfin.add(x["lg"])
                 continue
-            by[x["lg"]].append({a: b for a, b in k.items() if a not in ("fin", "sid")} if k else
+            by[x["lg"]].append(keep(k) if k else
                                {"id": x["id"], "t": t, "st": "NS", "el": None, "r": None, "h": team(*x["h"]), "a": team(*x["a"]), "g": None, "p": None, "per": [None] * 5})
             continue
         if exhibition(d): continue  # Testspiele vor der Saison stehen in der Tagesliste unter derselben Liga
