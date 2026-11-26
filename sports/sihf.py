@@ -276,9 +276,12 @@ def toks(*names):
     out = set()
     for n in names:
         n = unicodedata.normalize("NFKD", str(n or "")).encode("ascii", "ignore").decode().lower()
-        out |= {w for w in re.split(r"[^a-z0-9]+", n) if len(w) >= 3 and w not in {"ehc", "club", "hockey"}}
+        out |= {w for w in re.split(r"[^a-z0-9]+", n) if len(w) >= 3 and w not in {"ehc", "club", "hockey", "lions"}}
+    # «Lions» allein ordnete GCK Lions den ZSC Lions zu (Swiss-League-Tabelle, 27.11.2026) → kein Namensteil mehr; ZSC über zurich/zsc
     if "zurich" in out: out.add("zsc")
     if "zsc" in out: out.add("zurich")
+    # Highlightly führt Bellinzona noch unter dem alten Namen «Ticino Rockets» (27.11.2026)
+    if out & {"ticino", "rockets", "bellinzona", "snakes"}: out |= {"bellinzona", "snakes", "ticino", "rockets"}
     return out
 
 
@@ -335,7 +338,9 @@ def hl_table(sid):
     out = []
     for x in sorted(rows, key=lambda x: x.get("position") or 99):
         tm = x["team"]
-        tid, name = HL_IDS.get(tm["id"]) or next(([v[1], v[0]] for v in TEAMS.values() if toks(v[0]) & toks(tm["name"])), [tm["id"], tm["name"]])
+        # beste Übereinstimmung statt der ersten (27.11.2026)
+        best = max(TEAMS.values(), key=lambda v: len(toks(v[0]) & toks(tm["name"])))
+        tid, name = HL_IDS.get(tm["id"]) or ([best[1], best[0]] if toks(best[0]) & toks(tm["name"]) else [tm["id"], tm["name"]])
         w, l, ow, ol = (x.get("wins") or 0), (x.get("loses") or 0), (x.get("winsOvertime") or 0), (x.get("losesOvertime") or 0)
         # Highlightly zählt uneinheitlich: NL wins/loses inkl. n.V./n.P. (w + l = Spiele), MyHockey League ohne (w + l + ow + ol = Spiele)
         if w + l + ow + ol == (x.get("gamesPlayed") or 0) and w + l != (x.get("gamesPlayed") or 0): w, l = w + ow, l + ol
